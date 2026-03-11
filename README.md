@@ -38,7 +38,7 @@
 ### Вариант 2: Установка из исходников (Python)
 
 ```bash
-git clone https://github.com/yourname/visionforge.git
+git clone https://github.com/fikstt2/visionforge.git
 cd visionforge
 python -m venv venv
 source venv/bin/activate        # Linux / macOS
