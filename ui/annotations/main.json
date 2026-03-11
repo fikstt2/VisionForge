@@ -1,0 +1,44 @@
+{
+  "annotations": {
+    "003e107262a4213a_jpg.rf.76fb454ab6cdf174e8b2e49da6aac283.jpg": [
+      {
+        "bbox": [
+          102,
+          173,
+          488,
+          432
+        ],
+        "class": "бредли"
+      }
+    ],
+    "0060fa461e2f119e_jpg.rf.bf33d4c7639d6bef37c767a52d5ea1d6.jpg": [],
+    "0072ead6f4a3f7be_jpg.rf.643c7a1e72cfd69105dadf09f1098e3e.jpg": [],
+    "0060a7504ae9bbf6_jpg.rf.dc0d51273a7c0162cdc9c884bac38556.jpg": [],
+    "1055985262_0_0_1280_720_2072x0_60_0_0_12e15ba9fe12044c0a94e8a7bdbeed72.jpg": [
+      {
+        "bbox": [
+          384,
+          290,
+          957,
+          694
+        ],
+        "class": "Т-72"
+      }
+    ],
+    "005e6167916abbf0_jpg.rf.62c4541e4747c33676a5e5f73daed60f.jpg": []
+  },
+  "class_colors": {
+    "Т-72": "#00f2ff",
+    "бредли": "#4800ff"
+  },
+  "class_hierarchy": [
+    "unknown",
+    {
+      "name": "Танк",
+      "children": [
+        "бредли"
+      ]
+    },
+    "Т-72"
+  ]
+}
