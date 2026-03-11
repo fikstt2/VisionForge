@@ -1,0 +1,13 @@
+{
+    "detector_path": "D:/VisionForge/dist/VisionForge/models/tank_detector13/weights/best.pt",
+    "classifier_path": "D:/VisionForge/dist/VisionForge/models/tank_classifier4/weights/best.pt",
+    "cls_conf": 0.9,
+    "main_images_dir": "D:/dist/VisionForge/data/screenshots",
+    "main_json": "D:/tank detector.json",
+    "auto_json": "C:\\krutoi_diplom\\VisionForge\\ui\\data\\auto_annotations\\auto_annotations.json",
+    "font_path": "C:/Windows/Fonts/arial.ttf",
+    "thumbnail_cache": true,
+    "thumbnail_quality": 70,
+    "async_image_loading": false,
+    "auto_hide_panel": false
+}
