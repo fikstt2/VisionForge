@@ -1,19 +1,18 @@
 # ui/statistics_dialog.py
-import os
+
 import csv
 from collections import Counter
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QFileDialog, QMessageBox, QTextEdit,
                              QGroupBox, QGridLayout, QTabWidget, QWidget)
-from PyQt5.QtCore import Qt
+
 from PyQt5.QtGui import QFont
 import matplotlib
 matplotlib.use('Qt5Agg')
-import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from ui.theme import DARK_STYLE
+from ui.theme import get_current_theme_style
 
 class StatisticsDialog(QDialog):
     def __init__(self, project, parent=None):
@@ -22,11 +21,10 @@ class StatisticsDialog(QDialog):
         self.setWindowTitle("Статистика проекта")
         self.setModal(True)
         self.setMinimumSize(900, 700)
-        self.setStyleSheet(DARK_STYLE)
+        self.setStyleSheet(get_current_theme_style())
 
         layout = QVBoxLayout(self)
 
-        # Вкладки: Общая статистика, Распределение классов, Рекомендации
         tabs = QTabWidget()
         layout.addWidget(tabs)
 
@@ -34,7 +32,6 @@ class StatisticsDialog(QDialog):
         general_tab = QWidget()
         general_layout = QVBoxLayout(general_tab)
 
-        # Информационные поля
         info_group = QGroupBox("Общая информация")
         info_layout = QGridLayout()
 
@@ -55,7 +52,6 @@ class StatisticsDialog(QDialog):
         info_group.setLayout(info_layout)
         general_layout.addWidget(info_group)
 
-        # Таблица или текстовое поле с распределением по классам (для детального просмотра)
         class_stats_group = QGroupBox("Статистика по классам")
         class_stats_layout = QVBoxLayout()
 
@@ -98,18 +94,13 @@ class StatisticsDialog(QDialog):
         btn_layout.addWidget(self.export_btn)
         layout.addLayout(btn_layout)
 
-        # Заполняем данные
         self.update_statistics()
 
     def update_statistics(self):
-        """Вычисляет статистику и обновляет виджеты."""
-        # Подсчёт количества боксов по классам
         box_counter = Counter()
-        # Количество изображений, содержащих класс
         image_counter = Counter()
 
         for img_name, boxes in self.project.annotations.items():
-            # Учёт классов на изображении (уникальные)
             classes_in_image = set()
             for box in boxes:
                 cls = box.get('class', 'unknown')
@@ -118,7 +109,6 @@ class StatisticsDialog(QDialog):
             for cls in classes_in_image:
                 image_counter[cls] += 1
 
-        # Формируем текстовую статистику
         lines = []
         lines.append(f"{'Класс':<20} {'Боксы':>10} {'Изображения':>15}")
         lines.append("-" * 50)
@@ -128,7 +118,6 @@ class StatisticsDialog(QDialog):
             lines.append(f"{cls:<20} {boxes:>10} {images:>15}")
         self.class_stats_text.setText("\n".join(lines))
 
-        # Построение гистограммы
         self.figure.clear()
         ax = self.figure.add_subplot(111)
         classes = sorted(self.project.classes)
@@ -142,33 +131,27 @@ class StatisticsDialog(QDialog):
         self.figure.tight_layout()
         self.canvas.draw()
 
-        # Рекомендации
         rec_lines = []
         total_boxes = sum(box_counter.values())
         if total_boxes == 0:
             rec_lines.append("Проект не содержит размеченных изображений.")
         else:
-            # Минимальное рекомендуемое количество боксов для класса (например, 100)
             MIN_REC = 100
             for cls, count in box_counter.items():
                 if count < MIN_REC:
                     rec_lines.append(f"⚠️ Класс '{cls}' содержит всего {count} боксов. Рекомендуется не менее {MIN_REC}.")
-            # Дисбаланс: если максимальное количество боксов превышает минимальное более чем в 10 раз
             if box_counter:
                 max_count = max(box_counter.values())
                 min_count = min(box_counter.values())
                 if max_count / min_count > 10:
                     rec_lines.append("⚠️ Сильный дисбаланс классов. Рекомендуется собрать больше данных для малочисленных классов или применить аугментацию.")
 
-            # Рекомендация по разделению train/val/test
-            if total_boxes > 0:
-                rec_lines.append("")
-                rec_lines.append("Рекомендуемое разбиение датасета:")
-                rec_lines.append("- Train: 70-80%")
-                rec_lines.append("- Validation: 10-20%")
-                rec_lines.append("- Test: 10-20% (если нужно)")
+            rec_lines.append("")
+            rec_lines.append("Рекомендуемое разбиение датасета:")
+            rec_lines.append("- Train: 70-80%")
+            rec_lines.append("- Validation: 10-20%")
+            rec_lines.append("- Test: 10-20% (если нужно)")
 
-            # Если есть классы без боксов (но они есть в списке классов) – странно, но проверим
             for cls in self.project.classes:
                 if cls not in box_counter:
                     rec_lines.append(f"⚠️ Класс '{cls}' не встречается ни в одном боксе.")
@@ -181,7 +164,7 @@ class StatisticsDialog(QDialog):
             return
 
         try:
-            with open(path, 'w', newline='', encoding='utf-8-sig') as f:  # utf-8-sig добавляет BOM
+            with open(path, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
                 writer.writerow(["Класс", "Количество боксов", "Количество изображений"])
 

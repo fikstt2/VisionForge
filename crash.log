@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "C:\krutoi_diplom\VisionForge\ui\main_window.py", line 546, in check_panel
-    def check_panel(self):
-    
-KeyboardInterrupt

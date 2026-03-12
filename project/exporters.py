@@ -4,7 +4,7 @@ import json
 import cv2
 from xml.etree import ElementTree as ET
 from xml.dom import minidom
-
+from config import VERSION
 def export_yolo(project, output_dir):
     """Экспорт в формат YOLO (txt-файлы в папке labels)."""
     images_dir = project.images_dir
@@ -57,7 +57,7 @@ def export_coco(project, output_file):
     coco = {
         "info": {
             "description": "Exported from VisionForge",
-            "version": "1.0",
+            "version": VERSION,
             "year": 2025,
             "contributor": "",
             "date_created": ""

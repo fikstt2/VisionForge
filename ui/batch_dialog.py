@@ -3,8 +3,8 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QDoubleSpinBox, QCheckBox, QPushButton, QGroupBox,
                              QProgressBar, QDialogButtonBox, QRadioButton,
                              QLineEdit, QFileDialog)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from ui.theme import DARK_STYLE
+from PyQt5.QtCore import pyqtSignal
+from ui.theme import get_current_theme_style
 
 class BatchDialog(QDialog):
     def __init__(self, parent=None):
@@ -12,11 +12,11 @@ class BatchDialog(QDialog):
         self.setWindowTitle("Пакетная разметка")
         self.setModal(True)
         self.setMinimumWidth(500)
-        self.setStyleSheet(DARK_STYLE)
+        self.setStyleSheet(get_current_theme_style())
 
         layout = QVBoxLayout(self)
 
-        # --- Источник изображений ---
+        # Источник изображений
         source_group = QGroupBox("Источник изображений")
         source_layout = QVBoxLayout()
 
@@ -44,7 +44,7 @@ class BatchDialog(QDialog):
         source_group.setLayout(source_layout)
         layout.addWidget(source_group)
 
-        # --- Параметры детекции ---
+        # Параметры детекции
         det_group = QGroupBox("Параметры детекции")
         det_layout = QVBoxLayout()
 
@@ -71,7 +71,7 @@ class BatchDialog(QDialog):
         det_group.setLayout(det_layout)
         layout.addWidget(det_group)
 
-        # --- Классификатор ---
+        # Классификатор
         cls_group = QGroupBox("Классификатор")
         cls_layout = QVBoxLayout()
 
@@ -92,7 +92,7 @@ class BatchDialog(QDialog):
         cls_group.setLayout(cls_layout)
         layout.addWidget(cls_group)
 
-        # --- Кнопки ---
+        # Кнопки
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
@@ -113,9 +113,7 @@ class BatchDialog(QDialog):
             "cls_conf": self.cls_conf_spin.value()
         }
 
-
 class ProgressDialog(QDialog):
-    """Диалог с прогресс-баром для отображения хода пакетной обработки."""
     cancelled = pyqtSignal()
 
     def __init__(self, total, parent=None):
@@ -123,7 +121,7 @@ class ProgressDialog(QDialog):
         self.setWindowTitle("Пакетная разметка")
         self.setModal(True)
         self.setFixedSize(400, 150)
-        self.setStyleSheet(DARK_STYLE)
+        self.setStyleSheet(get_current_theme_style())
 
         layout = QVBoxLayout(self)
 
@@ -144,5 +142,5 @@ class ProgressDialog(QDialog):
         self.cancel_btn.setText("Отменяется...")
 
     def update_progress(self, value, filename):
-        self.progress.setValue(value + 1)  # value - текущий индекс (0-based)
+        self.progress.setValue(value + 1)
         self.label.setText(f"Обработка: {filename}")

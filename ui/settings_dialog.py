@@ -2,8 +2,8 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                              QLineEdit, QPushButton, QFileDialog, QDoubleSpinBox,
                              QFormLayout, QDialogButtonBox, QTabWidget,
-                             QCheckBox, QSpinBox, QWidget)
-from ui.theme import DARK_STYLE
+                             QCheckBox, QSpinBox, QWidget, QComboBox)
+from ui.theme import THEMES, get_current_theme_style
 import config
 
 class SettingsDialog(QDialog):
@@ -12,7 +12,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Настройки")
         self.setModal(True)
         self.resize(600, 450)
-        self.setStyleSheet(DARK_STYLE)
+        self.setStyleSheet(get_current_theme_style())
 
         self.current_config = config.load_config()
 
@@ -21,7 +21,7 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         layout.addWidget(tabs)
 
-        # ---------- Вкладка "Модели" ----------
+        # Вкладка "Модели"
         model_tab = QWidget()
         model_layout = QFormLayout(model_tab)
 
@@ -51,7 +51,7 @@ class SettingsDialog(QDialog):
 
         tabs.addTab(model_tab, "Модели")
 
-        # ---------- Вкладка "Данные" ----------
+        # Вкладка "Данные"
         data_tab = QWidget()
         data_layout = QFormLayout(data_tab)
 
@@ -100,9 +100,14 @@ class SettingsDialog(QDialog):
 
         tabs.addTab(perf_tab, "Производительность")
 
-        # ---------- Новая вкладка "Интерфейс" ----------
+        # Вкладка "Интерфейс"
         ui_tab = QWidget()
         ui_layout = QFormLayout(ui_tab)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(list(THEMES.keys()))
+        self.theme_combo.setCurrentText(self.current_config.get("theme", "Тёмная"))
+        ui_layout.addRow("Тема оформления:", self.theme_combo)
 
         self.auto_hide_check = QCheckBox("Автоматически скрывать правую панель в полноэкранном режиме")
         self.auto_hide_check.setChecked(self.current_config.get("auto_hide_panel", False))
@@ -110,7 +115,7 @@ class SettingsDialog(QDialog):
 
         tabs.addTab(ui_tab, "Интерфейс")
 
-        # ---------- Кнопки OK/Cancel ----------
+        # Кнопки OK/Cancel
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
@@ -138,5 +143,6 @@ class SettingsDialog(QDialog):
             "thumbnail_cache": self.thumb_cache_check.isChecked(),
             "thumbnail_quality": self.thumb_quality_spin.value(),
             "async_image_loading": self.async_load_check.isChecked(),
-            "auto_hide_panel": self.auto_hide_check.isChecked(),  # новая опция
+            "auto_hide_panel": self.auto_hide_check.isChecked(),
+            "theme": self.theme_combo.currentText(),
         }

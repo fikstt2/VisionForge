@@ -26,11 +26,25 @@ build/
 # Logs and databases
 *.log
 *.sqlite3
-
+*.spec
+*.ico
+*.json
 # Thumbnail cache
 thumb_cache/
-
+visionforge_build/
+__pycache__/
+*.pyc
+crash.log
+settings.json
+ui/data/
+ui/annotations/main.json
+ui/yolo*.pt
 # Data directories (если не хотите хранить большие файлы)
 data/
 annotations/
 models/
+/ui/annotations/
+/ui/data/
+/ui/runs/
+
+

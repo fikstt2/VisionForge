@@ -3,12 +3,9 @@ import os
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QDoubleSpinBox, QPushButton, QGroupBox,
                              QRadioButton, QFileDialog, QMessageBox, QProgressDialog,
-                             QComboBox, QCheckBox, QTreeWidget, QTreeWidgetItem,
-                             QInputDialog, QMenu, QAbstractItemView, QLineEdit)
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QIcon
-
-from ui.theme import DARK_STYLE
+                             QComboBox, QCheckBox, QAbstractItemView, QLineEdit)
+from PyQt5.QtCore import Qt
+from ui.theme import get_current_theme_style
 from project.dataset_preparer import prepare_detection_dataset, prepare_classification_dataset
 from project.project_manager import Project
 from ui.class_hierarchy_widget import ClassHierarchyWidget
@@ -21,7 +18,7 @@ class PrepareDatasetDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(800)
         self.setMinimumHeight(650)
-        self.setStyleSheet(DARK_STYLE)
+        self.setStyleSheet(get_current_theme_style())
 
         layout = QVBoxLayout(self)
 
@@ -225,7 +222,6 @@ class PrepareDatasetDialog(QDialog):
         if project is None:
             return
         project.load()
-        # Подсчёт боксов
         counts = {}
         for boxes in project.annotations.values():
             for box in boxes:
@@ -250,23 +246,20 @@ class PrepareDatasetDialog(QDialog):
         is_classification = self.task_classification.isChecked()
         use_superclass = self.use_superclass_check.isChecked()
 
-        # Генерируем mapping на основе иерархии, если включена опция
         class_mapping = {}
         if use_superclass:
-            # Проходим по иерархии: каждый класс заменяем именем родительской группы
             def process_item(item, parent_name=None):
                 if item.data(0, Qt.UserRole) == "class":
                     orig_name = item.text(0)
                     if parent_name:
                         class_mapping[orig_name] = parent_name
-                else:  # группа
+                else:
                     group_name = item.text(0)
                     for i in range(item.childCount()):
                         process_item(item.child(i), group_name)
             root = self.hierarchy_tree.invisibleRootItem()
             for i in range(root.childCount()):
                 process_item(root.child(i))
-        # Если не включено, mapping пустой – классы остаются с исходными именами
 
         try:
             progress = QProgressDialog("Подготовка датасета...", "Отмена", 0, 0, self)
@@ -282,7 +275,7 @@ class PrepareDatasetDialog(QDialog):
                     class_mapping=class_mapping,
                     crop_boxes=crop_boxes,
                     multiple_boxes_handling=handling,
-                    excluded_classes=set()  # пока не используем исключения
+                    excluded_classes=set()
                 )
                 progress.close()
                 msg = (f"Датасет классификации создан.\n"

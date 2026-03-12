@@ -1,20 +1,20 @@
 import os
 import sys
 import json
+import platform
 
 def get_base_dir():
     """Возвращает базовую директорию для хранения данных."""
     if getattr(sys, 'frozen', False):
-        # Для скомпилированного exe: папка, где лежит exe
         return os.path.dirname(sys.executable)
     else:
-        # Для разработки: текущая рабочая директория
-        # Можно также использовать os.path.dirname(__file__) если уверены, что config.py в корне
         return os.getcwd()
 
 BASE_DIR = get_base_dir()
 
 CONFIG_FILE = os.path.join(BASE_DIR, "settings.json")
+
+VERSION = "1.6.0"
 
 DEFAULT_CONFIG = {
     "detector_path": "",
@@ -23,20 +23,31 @@ DEFAULT_CONFIG = {
     "main_images_dir": os.path.join(BASE_DIR, "data", "screenshots"),
     "main_json": os.path.join(BASE_DIR, "annotations", "main.json"),
     "auto_json": os.path.join(BASE_DIR, "data", "auto_annotations", "auto_annotations.json"),
-    "font_path": "C:/Windows/Fonts/arial.ttf",
+    "font_path": "",
     "thumbnail_cache": True,
     "thumbnail_quality": 70,
     "async_image_loading": False,
     "auto_hide_panel": False,
+    "theme": "Тёмная",
 }
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             user_config = json.load(f)
-            return {**DEFAULT_CONFIG, **user_config}
+            merged = {**DEFAULT_CONFIG, **user_config}
     else:
-        return DEFAULT_CONFIG.copy()
+        merged = DEFAULT_CONFIG.copy()
+
+    from core.utils import get_default_font_path
+    if not merged["font_path"] or not os.path.exists(merged["font_path"]):
+        default_font = get_default_font_path()
+        if default_font:
+            merged["font_path"] = default_font
+        else:
+            merged["font_path"] = ""
+
+    return merged
 
 def save_config(config):
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -72,3 +83,4 @@ THUMBNAIL_CACHE = _settings["thumbnail_cache"]
 THUMBNAIL_QUALITY = _settings["thumbnail_quality"]
 ASYNC_IMAGE_LOADING = _settings["async_image_loading"]
 AUTO_HIDE_PANEL = _settings["auto_hide_panel"]
+THEME = _settings["theme"]

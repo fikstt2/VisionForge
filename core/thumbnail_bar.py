@@ -41,7 +41,7 @@ class ThumbnailBar(QWidget):
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_widget.setResizeMode(QListWidget.Adjust)
-        self.list_widget.setStyleSheet("background: transparent; border: none;")
+        self.list_widget.setStyleSheet("background: transparent; border: none; font-size: 11px;")
         self.list_widget.setSpacing(2)
         self.list_widget.setMovement(QListView.Static)
         self.list_widget.itemClicked.connect(self.on_item_clicked)
@@ -84,7 +84,7 @@ class ThumbnailBar(QWidget):
         else:
             self.content_widget.show()
             self.collapse_btn.setText("▲")
-            self.setFixedHeight(105)
+            self.setFixedHeight(120)
 
     def on_scroll(self):
         self.scroll_timer.start(100)
@@ -137,7 +137,6 @@ class ThumbnailBar(QWidget):
     def open_gallery(self):
         if self.main_window is None:
             return
-        # Берём классы из текущего проекта главного окна
         classes = self.main_window.current_project.classes
         filenames = [self.list_widget.item(i).data(Qt.UserRole) for i in range(self.list_widget.count())]
         from core.gallery_dialog import GalleryDialog

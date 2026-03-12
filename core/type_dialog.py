@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPixmap, QIcon
 from ui.class_hierarchy_widget import ClassHierarchyWidget
-from ui.theme import DARK_STYLE
+from ui.theme import get_current_theme_style
 from collections import defaultdict
 
 class TypeDialog(QDialog):
@@ -17,14 +17,13 @@ class TypeDialog(QDialog):
         self.setWindowTitle("Управление классами")
         self.setModal(True)
         self.setMinimumSize(600, 500)
-        self.setStyleSheet(DARK_STYLE)
+        self.setStyleSheet(get_current_theme_style())
 
         layout = QVBoxLayout(self)
 
         tree_group = QGroupBox("Иерархия классов")
         tree_layout = QVBoxLayout()
 
-        # Кнопки
         btn_layout = QHBoxLayout()
         self.add_group_btn = QPushButton("+ Группа")
         self.add_group_btn.clicked.connect(self.add_group)
@@ -44,7 +43,6 @@ class TypeDialog(QDialog):
         btn_layout.addStretch()
         tree_layout.addLayout(btn_layout)
 
-        # Дерево
         self.tree = ClassHierarchyWidget()
         self.tree.setHeaderLabels(["Класс / Группа", "Количество"])
         self.tree.setColumnWidth(0, 300)
@@ -74,7 +72,6 @@ class TypeDialog(QDialog):
         self.reload_tree()
 
     def reload_tree(self):
-        # Подсчёт боксов по всему проекту
         counts = defaultdict(int)
         for boxes in self.project.annotations.values():
             for box in boxes:

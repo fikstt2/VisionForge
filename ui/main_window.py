@@ -5,18 +5,15 @@ import cv2
 import hashlib
 import json
 import shutil
-from collections import OrderedDict
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QListWidget, QListWidgetItem,
                              QGroupBox, QFileDialog, QMessageBox, QInputDialog,
                              QDialog, QComboBox, QStackedWidget, QAction,
-                             QSplitter, QRadioButton, QColorDialog, QMenu, QLineEdit)
+                             QSplitter, QRadioButton, QColorDialog, QMenu)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, QThread
-from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QCursor, QIcon, QFont
-
-# Импортируем тему из отдельного файла
-from ui.theme import DARK_STYLE
+from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QCursor
+from ui.theme import get_current_theme_style
 from ui.statistics_dialog import StatisticsDialog
 project_root = os.path.dirname(os.path.dirname(__file__))
 if project_root not in sys.path:
@@ -34,7 +31,7 @@ from ui.class_hierarchy_widget import ClassHierarchyWidget
 import config
 from ultralytics import YOLO
 from core.utils import LimitedSizeDict
-
+from config import VERSION
 class BatchWorker(QThread):
     progress = pyqtSignal(int, str)  # текущий индекс, имя файла
     finished = pyqtSignal(bool, str)  # успех, сообщение
@@ -64,7 +61,6 @@ class BatchWorker(QThread):
             self.finished.emit(False, f"Ошибка: {str(e)}")
 
     def process_one(self, filename):
-        """Обрабатывает одно изображение и сохраняет результат в авто-проект."""
         src_path = os.path.join(self.source_dir, filename)
         dst_path = os.path.join(self.auto_project.images_dir, filename)
         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
@@ -86,7 +82,7 @@ class BatchWorker(QThread):
             class_name = "unknown"
             if self.params["use_classifier"] and self.classifier is not None:
                 crop = img_rgb[y1:y2, x1:x2]
-                if crop.size > 0:
+                if crop.size > 0 and crop.shape[0] >= 10 and crop.shape[1] >= 10:
                     cls_results = self.classifier(crop, verbose=False)
                     probs = cls_results[0].probs
                     if probs is not None:
@@ -127,7 +123,7 @@ class BoxItemWidget(QWidget):
         layout.addStretch()
 
         self.delete_btn = QPushButton("✕")
-        self.delete_btn.setFixedSize(20, 20)
+        self.delete_btn.setFixedSize(18, 18)
         self.delete_btn.setStyleSheet("""
             QPushButton {
                 background-color: #c0392b;
@@ -153,7 +149,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("VisionForge - Инструмент разметки")
         self.setGeometry(100, 100, 1300, 800)
-        self.setStyleSheet(DARK_STYLE)  # тема из ui.theme
+        self.setStyleSheet(get_current_theme_style())  # тема из ui.theme
 
         # Данные проекта
         self.main_project = Project(config.SCREENSHOTS_DIR, config.MAIN_JSON)
@@ -371,14 +367,14 @@ class MainWindow(QMainWindow):
         right_panel.setObjectName("right_panel")
         right_panel.setMinimumWidth(200)
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(2, 2, 2, 2)
+        right_layout.setContentsMargins(4, 8, 4, 8)
         right_layout.setSpacing(2)
 
         # Группа переключения режимов
         # Группа переключения режимов
         mode_group = QGroupBox("Режим")
         mode_layout = QHBoxLayout()
-        mode_layout.setContentsMargins(2, 2, 2, 2)
+        mode_layout.setContentsMargins(4, 8, 4, 8)
         mode_layout.setSpacing(2)
         self.main_radio = QRadioButton("Основной")
         self.auto_radio = QRadioButton("Авто")
@@ -401,8 +397,8 @@ class MainWindow(QMainWindow):
         # Группа фильтрации по классу
         filter_group = QGroupBox("Фильтр")
         filter_layout = QVBoxLayout()
-        filter_layout.setContentsMargins(2, 2, 2, 2)
-        filter_layout.setSpacing(2)
+        filter_layout.setContentsMargins(4, 8, 4, 8)
+        filter_layout.setSpacing(6)
         self.filter_combo = QComboBox()
         self.filter_combo.addItem("Все")
         self.filter_combo.currentTextChanged.connect(self.on_filter_changed)
@@ -413,7 +409,7 @@ class MainWindow(QMainWindow):
         # Группа классов с деревом иерархии
         classes_group = QGroupBox("Классы")
         classes_layout = QVBoxLayout()
-        classes_layout.setContentsMargins(2, 2, 2, 2)
+        classes_layout.setContentsMargins(4, 8, 4, 8)
         classes_layout.setSpacing(2)
 
         # Сначала создаём дерево
@@ -443,7 +439,7 @@ class MainWindow(QMainWindow):
         # Группа информации
         info_group = QGroupBox("Информация")
         info_layout = QVBoxLayout()
-        info_layout.setContentsMargins(2, 2, 2, 2)
+        info_layout.setContentsMargins(4, 8, 4, 8)
         info_layout.setSpacing(2)
         self.total_label = QLabel("Всего: 0")
         self.total_label.setStyleSheet("font-size: 11px; font-weight: bold;")
@@ -460,7 +456,7 @@ class MainWindow(QMainWindow):
         # Группа быстрых действий
         quick_group = QGroupBox("Действия")
         quick_layout = QVBoxLayout()
-        quick_layout.setContentsMargins(2, 2, 2, 2)
+        quick_layout.setContentsMargins(4, 8, 4, 8)
         quick_layout.setSpacing(2)
 
         self.btn_auto = QPushButton("Авторазметка (A)")
@@ -498,7 +494,7 @@ class MainWindow(QMainWindow):
         # Группа списка боксов
         list_group = QGroupBox("Боксы")
         list_layout = QVBoxLayout()
-        list_layout.setContentsMargins(2, 2, 2, 2)
+        list_layout.setContentsMargins(4, 8, 4, 8)
         list_layout.setSpacing(2)
         self.box_list = QListWidget()
         self.box_list.itemClicked.connect(self.on_box_list_click)
@@ -794,21 +790,21 @@ class MainWindow(QMainWindow):
         msg_box.setWindowTitle("Справка")
         msg_box.setTextFormat(Qt.RichText)
         msg_box.setText(help_text)
-        msg_box.setStyleSheet(DARK_STYLE)
+        msg_box.setStyleSheet(get_current_theme_style())
         msg_box.exec_()
 
     def show_about(self):
         about_text = """
         <h2>VisionForge</h2>
-        <p>Версия 1.1 beta</p>
+        <p>Версия {}</p>
         <p>Инструмент для разметки изображений, детекции в реальном времени и обучения моделей YOLO.</p>
         <p>Разработано с использованием PyQt5, OpenCV, Ultralytics YOLO.</p>
-        """
+        """.format(VERSION)
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("О программе")
         msg_box.setTextFormat(Qt.RichText)
         msg_box.setText(about_text)
-        msg_box.setStyleSheet(DARK_STYLE)
+        msg_box.setStyleSheet(get_current_theme_style())
         msg_box.exec_()
 
     # ---------- Загрузка моделей ----------
@@ -1154,6 +1150,7 @@ class MainWindow(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             new_config = dialog.get_config()
             config.save_config(new_config)
+            # Обновляем константы модуля config
             config.DETECTOR_PATH = new_config["detector_path"]
             config.CLASSIFIER_PATH = new_config["classifier_path"]
             config.CLS_CONF = new_config["cls_conf"]
@@ -1164,6 +1161,11 @@ class MainWindow(QMainWindow):
             config.THUMBNAIL_QUALITY = new_config["thumbnail_quality"]
             config.ASYNC_IMAGE_LOADING = new_config["async_image_loading"]
             config.AUTO_HIDE_PANEL = new_config["auto_hide_panel"]
+            config.THEME = new_config["theme"]
+
+            # Применяем новую тему к главному окну
+            self.setStyleSheet(get_current_theme_style())
+
             self.auto_hide_panel = new_config["auto_hide_panel"]
 
             self.load_models_from_config()
@@ -1297,7 +1299,7 @@ class MainWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def edit_selected(self):
-        if self.widget.selected_idx >= 0:
+        if 0 <= self.widget.selected_idx < len(self.widget.boxes):
             self.widget.boxes[self.widget.selected_idx]["class"] = self.widget.current_class
             self.widget.update()
             self.widget.boxes_changed.emit()

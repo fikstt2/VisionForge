@@ -1,7 +1,17 @@
 from collections import deque
+import logging
 from PyQt5.QtWidgets import QOpenGLWidget
 from PyQt5.QtCore import Qt, QRect, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor, QImage, QPixmap
+
+logging.basicConfig(filename='visionforge.log', level=logging.ERROR,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+def get_contrast_text_color(bg_color):
+    """Возвращает чёрный или белый цвет в зависимости от яркости фона."""
+    # Яркость по формуле (R*299 + G*587 + B*114) / 1000
+    brightness = (bg_color.red() * 299 + bg_color.green() * 587 + bg_color.blue() * 114) / 1000
+    return Qt.black if brightness > 128 else Qt.white
 
 class AnnotationWidget(QOpenGLWidget):
     selection_changed = pyqtSignal(int)
@@ -17,7 +27,7 @@ class AnnotationWidget(QOpenGLWidget):
         self.selected_idx = -1
         self.current_class = "unknown"
         self.available_classes = ["unknown"]
-        self.class_colors = {}  # class -> QColor name
+        self.class_colors = {}
 
         self.zoom = 1.0
         self.pan_x = 0.0
@@ -35,7 +45,7 @@ class AnnotationWidget(QOpenGLWidget):
         self.resize_mode = None
         self.resize_start_pos = None
 
-        self.history = deque(maxlen=50)
+        self.history = deque(maxlen=100)
         self.history_enabled = True
 
         self.detector = None
@@ -101,18 +111,23 @@ class AnnotationWidget(QOpenGLWidget):
                 if sy2 < sy1: sy1, sy2 = sy2, sy1
                 if sx2 - sx1 < 1 or sy2 - sy1 < 1:
                     continue
-                # Определяем цвет
                 class_name = box.get("class", "unknown")
-                color_name = self.class_colors.get(class_name, "#ff0000")  # по умолчанию красный
+                color_name = self.class_colors.get(class_name, "#ff0000")
                 color = QColor(color_name)
+
+                # Цвет контура и заливки (если выделен)
                 if idx == self.selected_idx:
                     painter.setPen(QPen(QColor(0, 255, 255), 3))
                     painter.setBrush(QColor(0, 255, 255, 50))
                 else:
                     painter.setPen(QPen(color, 2))
                     painter.setBrush(Qt.NoBrush)
+
                 painter.drawRect(QRect(sx1, sy1, sx2 - sx1, sy2 - sy1))
-                painter.setPen(QPen(QColor(255, 255, 255), 1))
+
+                # Текст с контрастным цветом
+                text_color = get_contrast_text_color(color)
+                painter.setPen(QPen(text_color, 1))
                 painter.drawText(sx1, sy1 - 5, class_name)
 
             if self.drawing and self.drag_start and self.drag_end:
@@ -171,7 +186,7 @@ class AnnotationWidget(QOpenGLWidget):
                 self.update()
                 return
 
-            if self.selected_idx >= 0 and self.selected_idx < len(self.boxes):
+            if 0 <= self.selected_idx < len(self.boxes):
                 box = self.boxes[self.selected_idx]
                 x1, y1, x2, y2 = box["bbox"]
                 sx1, sy1 = self.image_to_screen(x1, y1)
@@ -295,7 +310,7 @@ class AnnotationWidget(QOpenGLWidget):
             if new_x2 - new_x1 < 5: new_x2 = new_x1 + 5
             if new_y2 - new_y1 < 5: new_y2 = new_y1 + 5
 
-            if self.selected_idx >= 0:
+            if 0 <= self.selected_idx < len(self.boxes):
                 self.boxes[self.selected_idx]["bbox"] = [new_x1, new_y1, new_x2, new_y2]
                 self.boxes_changed.emit()
                 self.update()
@@ -372,7 +387,7 @@ class AnnotationWidget(QOpenGLWidget):
                 self.update()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Delete and self.selected_idx >= 0:
+        if event.key() == Qt.Key_Delete and 0 <= self.selected_idx < len(self.boxes):
             self.delete_selected()
         elif event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
             self.undo()
@@ -390,7 +405,7 @@ class AnnotationWidget(QOpenGLWidget):
         self.status_message.emit("Рисуйте новый бокс")
 
     def delete_selected(self):
-        if self.selected_idx >= 0 and self.selected_idx < len(self.boxes):
+        if 0 <= self.selected_idx < len(self.boxes):
             self.save_state_to_history()
             del self.boxes[self.selected_idx]
             self.selected_idx = -1
@@ -438,7 +453,7 @@ class AnnotationWidget(QOpenGLWidget):
                 class_name = "unknown"
                 if self.classifier is not None:
                     crop = self.image_orig[y1:y2, x1:x2]
-                    if crop.size > 0:
+                    if crop.size > 0 and crop.shape[0] >= 10 and crop.shape[1] >= 10:
                         cls_results = self.classifier(crop, verbose=False)
                         probs = cls_results[0].probs
                         if probs is not None:
@@ -452,4 +467,5 @@ class AnnotationWidget(QOpenGLWidget):
             self.status_message.emit(f"Добавлено {len(new_boxes)} боксов")
             self.update()
         except Exception as e:
+            logging.error(f"Auto-annotation error: {e}", exc_info=True)
             self.status_message.emit(f"Ошибка авторазметки: {e}")

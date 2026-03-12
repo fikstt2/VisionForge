@@ -2,7 +2,7 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QLineEdit, QPushButton, QFileDialog,
                              QGroupBox, QRadioButton, QMessageBox)
-from ui.theme import DARK_STYLE
+from ui.theme import get_current_theme_style
 from project.importers import import_yolo, import_coco, import_voc
 
 class ImportDialog(QDialog):
@@ -11,9 +11,9 @@ class ImportDialog(QDialog):
         self.setWindowTitle("Импорт аннотаций")
         self.setModal(True)
         self.setMinimumWidth(500)
-        self.setStyleSheet(DARK_STYLE)
+        self.setStyleSheet(get_current_theme_style())
 
-        self.result_data = None  # (annotations_dict, classes_list)
+        self.result_data = None
 
         layout = QVBoxLayout(self)
 
@@ -65,7 +65,7 @@ class ImportDialog(QDialog):
             path, _ = QFileDialog.getOpenFileName(self, "Выберите COCO JSON", "", "JSON files (*.json)")
         elif fmt == "Pascal VOC":
             path = QFileDialog.getExistingDirectory(self, "Выберите папку с XML-файлами")
-        else:  # YOLO
+        else:
             path = QFileDialog.getExistingDirectory(self, "Выберите корневую папку (с images и labels)")
         if path:
             self.source_edit.setText(path)
@@ -82,7 +82,7 @@ class ImportDialog(QDialog):
                 data, classes = import_yolo(source)
             elif fmt == "COCO":
                 data, classes = import_coco(source)
-            else:  # VOC
+            else:
                 data, classes = import_voc(source)
         except Exception as e:
             QMessageBox.critical(self, "Ошибка импорта", f"Не удалось импортировать:\n{str(e)}")

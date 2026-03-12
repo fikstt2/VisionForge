@@ -1,21 +1,21 @@
 # core/gallery_dialog.py
-
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QListWidget, QListWidgetItem, QComboBox,
                              QPushButton)
 from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QIcon
+from ui.theme import get_current_theme_style
 
 class GalleryDialog(QDialog):
     def __init__(self, parent, filenames, classes, main_window):
         super().__init__(parent)
+        self.setStyleSheet(get_current_theme_style())
         self.main_window = main_window
-        self.filenames = filenames  # исходный список строк
+        self.filenames = filenames
         self.classes = classes
         self.setWindowTitle("Галерея")
         self.setModal(True)
         self.resize(900, 600)
-        self.setStyleSheet("background-color: #2b2b2b; color: #ffffff;")
 
         layout = QVBoxLayout(self)
 
@@ -57,7 +57,6 @@ class GalleryDialog(QDialog):
         self.populate_list()
 
     def populate_list(self):
-        """Заполняет список всеми файлами (без фильтра)."""
         self.list_widget.clear()
         for f in self.filenames:
             item = QListWidgetItem()
@@ -72,7 +71,6 @@ class GalleryDialog(QDialog):
         self.scroll_timer.start(100)
 
     def load_visible_thumbnails(self):
-        """Ленивая загрузка миниатюр для видимой области."""
         list_widget = self.list_widget
         if list_widget.count() == 0:
             return
@@ -107,7 +105,6 @@ class GalleryDialog(QDialog):
                 if pixmap:
                     item.setIcon(QIcon(pixmap))
 
-        # Очищаем иконки за пределами видимой области (для экономии памяти)
         for i in range(list_widget.count()):
             if i < start or i >= end:
                 item = list_widget.item(i)
@@ -115,7 +112,6 @@ class GalleryDialog(QDialog):
                     item.setIcon(QIcon())
 
     def apply_filter(self, filter_text):
-        """Применяет фильтр по классу или 'Неразмеченные'."""
         self.list_widget.clear()
         if filter_text == "Все":
             filtered = self.filenames
@@ -134,10 +130,8 @@ class GalleryDialog(QDialog):
             item.setToolTip(f)
             item.setText("")
             self.list_widget.addItem(item)
-        # Немного задерживаем загрузку, чтобы список успел отрисоваться
         QTimer.singleShot(50, self.load_visible_thumbnails)
 
     def get_selected(self):
-        """Возвращает список выбранных файлов."""
         items = self.list_widget.selectedItems()
         return [item.data(Qt.UserRole) for item in items]

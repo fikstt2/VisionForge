@@ -1,6 +1,7 @@
 # ui/theme.py
+import config
 
-# Тёмная тема (по умолчанию) – объединённый стиль для главного окна и диалогов
+# Тёмная тема (по умолчанию)
 DARK_STYLE = """
 QMainWindow {
     background-color: #1e1e1e;
@@ -268,8 +269,6 @@ QHeaderView::section {
     padding: 2px;
     font-size: 10px;
 }
-
-/* --- Добавленные стили для текстовых областей и таблиц --- */
 QTextEdit, QPlainTextEdit {
     background-color: #3c3c3c;
     color: #ffffff;
@@ -289,7 +288,6 @@ QTableWidget {
 QTableWidget::item {
     padding: 2px;
 }
-/* Дополнительно для QHeaderView таблицы (уже есть, но переопределим для таблиц) */
 QTableWidget QHeaderView::section {
     background-color: #2b2b2b;
     color: #dddddd;
@@ -299,7 +297,6 @@ QTableWidget QHeaderView::section {
 }
 """
 
-# Светлая тема
 LIGHT_STYLE = """
 QMainWindow {
     background-color: #f0f0f0;
@@ -344,6 +341,7 @@ QGroupBox {
     background-color: #ffffff;
 }
 QGroupBox::title {
+    subcontrol-origin: margin;
     left: 10px;
     padding: 0 4px 0 4px;
     color: #0d7377;
@@ -409,22 +407,21 @@ QSpinBox, QDoubleSpinBox {
     padding: 2px;
     font-size: 10px;
 }
-QCheckBox {
+QRadioButton, QCheckBox {
     color: #000000;
     spacing: 4px;
     font-size: 10px;
 }
-QCheckBox::indicator {
+QRadioButton::indicator, QCheckBox::indicator {
     width: 12px;
     height: 12px;
     border-radius: 2px;
     background-color: #ffffff;
     border: 1px solid #a0a0a0;
 }
-QCheckBox::indicator:checked {
+QRadioButton::indicator:checked, QCheckBox::indicator:checked {
     background-color: #0d7377;
     border-color: #0d7377;
-    image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgdmlld0JveD0iMCAwIDEyIDEyIj48cGF0aCBkPSJNOS41IDMuNUw1IDggMi41IDUuNSIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiLz48L3N2Zz4=);
 }
 QListWidget {
     background-color: #ffffff;
@@ -543,7 +540,7 @@ QTableWidget QHeaderView::section {
 }
 """
 
-# Высококонтрастная тёмная тема
+# Высококонтрастная тема (добавлены QRadioButton, QCheckBox)
 HIGH_CONTRAST_STYLE = """
 QMainWindow {
     background-color: #000000;
@@ -588,6 +585,7 @@ QGroupBox {
     background-color: #000000;
 }
 QGroupBox::title {
+    subcontrol-origin: margin;
     left: 10px;
     padding: 0 4px 0 4px;
     color: #ffff00;
@@ -656,19 +654,19 @@ QSpinBox, QDoubleSpinBox {
     padding: 2px;
     font-size: 10px;
 }
-QCheckBox {
+QRadioButton, QCheckBox {
     color: #ffffff;
     spacing: 4px;
     font-size: 10px;
 }
-QCheckBox::indicator {
+QRadioButton::indicator, QCheckBox::indicator {
     width: 12px;
     height: 12px;
     border-radius: 2px;
     background-color: #000000;
     border: 2px solid #ffffff;
 }
-QCheckBox::indicator:checked {
+QRadioButton::indicator:checked, QCheckBox::indicator:checked {
     background-color: #ffff00;
     border-color: #ffff00;
 }
@@ -791,7 +789,6 @@ QTableWidget QHeaderView::section {
 }
 """
 
-# Словарь доступных тем
 THEMES = {
     "Тёмная": DARK_STYLE,
     "Светлая": LIGHT_STYLE,
@@ -799,5 +796,7 @@ THEMES = {
 }
 
 def get_theme(name):
-    """Возвращает стиль для указанной темы."""
     return THEMES.get(name, DARK_STYLE)
+
+def get_current_theme_style():
+    return get_theme(config.THEME)
