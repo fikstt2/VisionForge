@@ -54,6 +54,7 @@ class TypeDialog(QDialog):
         self.tree.itemClicked.connect(self.on_item_clicked)
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.tree.hierarchy_changed.connect(self.on_hierarchy_changed)
+        self.tree.delete_class_requested.connect(self.on_delete_class_requested)  # подключение сигнала
         tree_layout.addWidget(self.tree)
 
         tree_group.setLayout(tree_layout)
@@ -114,6 +115,12 @@ class TypeDialog(QDialog):
     def on_hierarchy_changed(self):
         pass
 
+    def on_delete_class_requested(self, class_name):
+        # Выделяем класс для наглядности
+        self.select_class(class_name)
+        # Вызываем ту же логику, что и при нажатии кнопки "Удалить"
+        self.delete_selected()
+
     def add_group(self):
         name, ok = QInputDialog.getText(self, "Новая группа", "Введите название группы:")
         if ok and name.strip():
@@ -163,6 +170,7 @@ class TypeDialog(QDialog):
         item = self.tree.currentItem()
         if not item:
             return
+
         if item.data(0, Qt.UserRole) == "group":
             reply = QMessageBox.question(self, "Удаление группы",
                                          f"Удалить группу '{item.text(0)}' и всё содержимое?",
@@ -171,15 +179,17 @@ class TypeDialog(QDialog):
                 return
             parent = item.parent() or self.tree.invisibleRootItem()
             parent.removeChild(item)
-        else:
-            reply = QMessageBox.question(self, "Удаление класса",
-                                         f"Удалить класс '{item.text(0)}' из иерархии?",
-                                         QMessageBox.Yes | QMessageBox.No)
-            if reply != QMessageBox.Yes:
-                return
-            parent = item.parent() or self.tree.invisibleRootItem()
-            parent.removeChild(item)
-        self.on_hierarchy_changed()
+            self.on_hierarchy_changed()
+        else:  # класс
+            class_name = item.text(0)
+            if hasattr(self.parent(), 'delete_class'):
+                success = self.parent().delete_class(class_name)
+                if success:
+                    self.reload_tree()
+            else:
+                parent = item.parent() or self.tree.invisibleRootItem()
+                parent.removeChild(item)
+                self.on_hierarchy_changed()
 
     def rename_selected(self):
         item = self.tree.currentItem()

@@ -417,7 +417,7 @@ class MainWindow(QMainWindow):
         self.class_tree.class_selected.connect(self.on_class_selected_from_list)
         self.class_tree.color_change_requested.connect(self.on_class_color_changed)
         self.class_tree.hierarchy_changed.connect(self.on_hierarchy_changed)
-
+        self.class_tree.delete_class_requested.connect(self.on_class_deleted_from_tree)
         # Кнопки управления иерархией
         hierarchy_btn_layout = QHBoxLayout()
         self.add_group_btn = QPushButton("+ Группа")
@@ -603,6 +603,8 @@ class MainWindow(QMainWindow):
             self.right_panel.show()
             self.panel_visible = True
 
+    def on_class_deleted_from_tree(self, class_name):
+        self.delete_class(class_name)
     def hide_panel_safe(self):
         if self.auto_hide_panel and self.right_panel.isVisible() and self.panel_visible:
             if not self.right_panel.underMouse():
@@ -1017,45 +1019,58 @@ class MainWindow(QMainWindow):
                     self.current_project.annotations[img] = new_boxes
                 else:
                     del self.current_project.annotations[img]
+            # Удаляем класс из иерархии
+            self._remove_class_from_hierarchy(self.current_project.class_hierarchy, class_name)
             self.update_status(f"Класс '{class_name}' и все его боксы удалены.")
-            self.current_project.load()
-            self.update_class_tree()
-            self.widget.set_classes(self.current_project.classes, self.widget.current_class)
-            self.update_filtered_images()
-            self.load_current_image()
-            self.thumb_bar.clear()
-            for f in self.filtered_images:
-                self.thumb_bar.add_item(f)
-            self.thumb_bar.load_visible_thumbnails()
-            self.update_filter_combo()
-            return True
 
         elif msg.clickedButton() == reassign_btn:
             new_class, ok = QInputDialog.getItem(self, "Переназначить класс",
-                                                "Выберите новый класс:",
-                                                self.current_project.classes, 0, False)
+                                                 "Выберите новый класс:",
+                                                 self.current_project.classes, 0, False)
             if ok and new_class and new_class != class_name:
                 for img in self.current_project.annotations:
                     for box in self.current_project.annotations[img]:
                         if box["class"] == class_name:
                             box["class"] = new_class
+                # Удаляем старый класс из иерархии
+                self._remove_class_from_hierarchy(self.current_project.class_hierarchy, class_name)
                 self.update_status(f"Класс '{class_name}' переназначен на '{new_class}'.")
-                self.current_project.load()
-                self.update_class_tree()
-                self.widget.set_classes(self.current_project.classes, self.widget.current_class)
-                self.update_filtered_images()
-                self.load_current_image()
-                self.thumb_bar.clear()
-                for f in self.filtered_images:
-                    self.thumb_bar.add_item(f)
-                self.thumb_bar.load_visible_thumbnails()
-                self.update_filter_combo()
-                return True
             else:
                 return False
         else:
             return False
 
+        # Обновляем списки классов и цвета
+        self.current_project.update_classes_from_hierarchy()
+        self.current_project.generate_class_colors()
+        self.current_project.clean_class_colors()
+        self.current_project.save()
+
+        # Обновляем интерфейс
+        self.update_class_tree()
+        self.widget.set_classes(self.current_project.classes, self.widget.current_class)
+        self.update_filtered_images()
+        self.load_current_image()
+        self.thumb_bar.clear()
+        for f in self.filtered_images:
+            self.thumb_bar.add_item(f)
+        self.thumb_bar.load_visible_thumbnails()
+        self.update_filter_combo()
+        return True
+
+    def _remove_class_from_hierarchy(self, hierarchy, class_name):
+        """Рекурсивно удаляет все вхождения class_name из иерархии."""
+        i = 0
+        while i < len(hierarchy):
+            item = hierarchy[i]
+            if isinstance(item, str):
+                if item == class_name:
+                    del hierarchy[i]
+                    continue
+            elif isinstance(item, dict) and "name" in item:
+                if "children" in item:
+                    self._remove_class_from_hierarchy(item["children"], class_name)
+            i += 1
     # ---------- Авторазметка ----------
     def auto_annotate(self):
         if self.detector is None:

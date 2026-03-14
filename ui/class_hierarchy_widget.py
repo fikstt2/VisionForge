@@ -8,7 +8,8 @@ class ClassHierarchyWidget(QTreeWidget):
     """Дерево для отображения и редактирования иерархии классов."""
     class_selected = pyqtSignal(str)          # имя класса (не группы)
     color_change_requested = pyqtSignal(str)  # имя класса
-    hierarchy_changed = pyqtSignal()          # структура изменилась
+    hierarchy_changed = pyqtSignal()          # структура изменилась (переименование, перемещение)
+    delete_class_requested = pyqtSignal(str)  # запрос на удаление класса
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -22,7 +23,6 @@ class ClassHierarchyWidget(QTreeWidget):
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QAbstractItemView.InternalMove)
 
-        # Контекстное меню
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
 
@@ -51,22 +51,20 @@ class ClassHierarchyWidget(QTreeWidget):
             rename_action = menu.addAction("Переименовать класс")
             rename_action.triggered.connect(lambda: self.rename_class(item))
             delete_action = menu.addAction("Удалить класс")
-            delete_action.triggered.connect(lambda: self.delete_class(item))
+            # Вместо удаления из дерева испускаем сигнал
+            delete_action.triggered.connect(lambda: self.delete_class_requested.emit(item.text(0)))
 
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def on_item_clicked(self, item, column):
-        # Если это класс (не группа), испускаем сигнал выбора класса
         if item.data(0, Qt.UserRole) == "class":
             class_name = item.text(0)
             self.class_selected.emit(class_name)
 
     def on_item_double_clicked(self, item, column):
-        # Для класса – запрос изменения цвета
         if item.data(0, Qt.UserRole) == "class":
             class_name = item.text(0)
             self.color_change_requested.emit(class_name)
-        # Для группы – можно разрешить редактирование имени, но пока через меню
 
     def populate_from_hierarchy(self, hierarchy, class_colors, counts=None):
         """Заполняет дерево из иерархии (список).
@@ -89,11 +87,10 @@ class ClassHierarchyWidget(QTreeWidget):
                     group_item = QTreeWidgetItem([item_data["name"], ""])
                     group_item.setData(0, Qt.UserRole, "group")
                     group_item.setFlags(group_item.flags() | Qt.ItemIsEditable)
-                    group_item.setIcon(0, QIcon())  # можно добавить иконку папки
+                    group_item.setIcon(0, QIcon())
                     parent.addChild(group_item)
                     if "children" in item_data:
                         add_items(group_item, item_data["children"])
-                # Другие типы игнорируем
 
         root = self.invisibleRootItem()
         add_items(root, hierarchy)
@@ -106,7 +103,6 @@ class ClassHierarchyWidget(QTreeWidget):
         item = QTreeWidgetItem([class_name, str(count)])
         item.setData(0, Qt.UserRole, "class")
         item.setFlags(item.flags() | Qt.ItemIsDragEnabled)
-        # Цветной квадрат
         pixmap = QPixmap(14, 14)
         pixmap.fill(QColor(color))
         item.setIcon(0, QIcon(pixmap))
@@ -140,7 +136,6 @@ class ClassHierarchyWidget(QTreeWidget):
         if item.data(0, Qt.UserRole) == "class":
             return item.text(0)
         else:
-            # группа
             children = []
             for i in range(item.childCount()):
                 children.append(self._item_to_dict(item.child(i)))
@@ -177,14 +172,9 @@ class ClassHierarchyWidget(QTreeWidget):
             self.hierarchy_changed.emit()
 
     def delete_class(self, class_item):
-        class_name = class_item.text(0)
-        reply = QMessageBox.question(self, "Удаление класса",
-                                     f"Удалить класс '{class_name}' из иерархии? (сами боксы не удаляются)",
-                                     QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            parent = class_item.parent() or self.invisibleRootItem()
-            parent.removeChild(class_item)
-            self.hierarchy_changed.emit()
+        # Этот метод больше не используется для удаления класса через контекстное меню,
+        # оставлен для обратной совместимости, но можно удалить.
+        pass
 
     def change_class_color(self, class_item):
         class_name = class_item.text(0)
