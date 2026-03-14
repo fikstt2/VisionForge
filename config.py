@@ -14,7 +14,7 @@ BASE_DIR = get_base_dir()
 
 CONFIG_FILE = os.path.join(BASE_DIR, "settings.json")
 
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 
 DEFAULT_CONFIG = {
     "detector_path": "",
