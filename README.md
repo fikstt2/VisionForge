@@ -28,6 +28,7 @@
 ## Скриншоты:
 [![photo-2026-03-14-15-16-51.jpg](https://i.postimg.cc/mkTb1X7T/photo-2026-03-14-15-16-51.jpg)](https://postimg.cc/dkSMz9Wf)
 [![photo-2026-03-14-15-17-59.jpg](https://i.postimg.cc/Y0C5wJQP/photo-2026-03-14-15-17-59.jpg)](https://postimg.cc/sQb6YH6P)
+[![photo-2026-03-14-15-18-03.jpg](https://i.postimg.cc/Kzk9rxrn/photo-2026-03-14-15-18-03.jpg)](https://postimg.cc/vgyLGRKB)
 ## 📦 Установка
 
 ### Вариант 1: Готовый исполняемый файл (Windows)
