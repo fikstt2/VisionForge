@@ -6,7 +6,7 @@ import cv2
 from collections import defaultdict
 
 def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.2, test_ratio=0.0,
-                              class_mapping=None, excluded_classes=None):
+                              class_mapping=None, excluded_classes=None, task_type='detection'):
     """
     Подготавливает датасет для детекции в формате YOLO.
 
@@ -100,12 +100,28 @@ def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.
                 for box in boxes:
                     cls_name = box['class']
                     cls_id = new_class_to_id[cls_name]
-                    x1, y1, x2, y2 = box['bbox']
-                    x_center = (x1 + x2) / 2 / w
-                    y_center = (y1 + y2) / 2 / h
-                    width = (x2 - x1) / w
-                    height = (y2 - y1) / h
-                    f.write(f"{cls_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+                    if task_type == 'segmentation':
+                        # Сегментация: записываем полигон
+                        coords = []
+                        if 'polygon' in box and box['polygon']:
+                            pts = box['polygon']
+                        else:
+                            # Генерируем полигон из bbox
+                            x1, y1, x2, y2 = box['bbox']
+                            pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+                        
+                        for pt in pts:
+                            coords.append(f"{pt[0] / w:.6f}")
+                            coords.append(f"{pt[1] / h:.6f}")
+                        f.write(f"{cls_id} {' '.join(coords)}\n")
+                    else:
+                        # Детекция: всегда записываем bbox (даже если есть полигон)
+                        x1, y1, x2, y2 = box['bbox']
+                        x_center = (x1 + x2) / 2 / w
+                        y_center = (y1 + y2) / 2 / h
+                        width = (x2 - x1) / w
+                        height = (y2 - y1) / h
+                        f.write(f"{cls_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
 
     # Создаём data.yaml
     yaml_path = os.path.join(output_dir, 'data.yaml')

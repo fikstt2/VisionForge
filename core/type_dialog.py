@@ -6,6 +6,7 @@ from PyQt5.QtGui import QColor, QPixmap, QIcon
 from ui.class_hierarchy_widget import ClassHierarchyWidget
 from ui.theme import get_current_theme_style
 from collections import defaultdict
+from core.i18n import tr
 
 class TypeDialog(QDialog):
     def __init__(self, project, current_class, parent=None):
@@ -14,26 +15,26 @@ class TypeDialog(QDialog):
         self.current_class = current_class
         self.result_class = None
 
-        self.setWindowTitle("Управление классами")
+        self.setWindowTitle(tr("Управление классами"))
         self.setModal(True)
         self.setMinimumSize(600, 500)
         self.setStyleSheet(get_current_theme_style())
 
         layout = QVBoxLayout(self)
 
-        tree_group = QGroupBox("Иерархия классов")
+        tree_group = QGroupBox(tr("Иерархия классов"))
         tree_layout = QVBoxLayout()
 
         btn_layout = QHBoxLayout()
-        self.add_group_btn = QPushButton("+ Группа")
+        self.add_group_btn = QPushButton(tr("+ Группа"))
         self.add_group_btn.clicked.connect(self.add_group)
-        self.add_class_btn = QPushButton("+ Класс")
+        self.add_class_btn = QPushButton(tr("+ Класс"))
         self.add_class_btn.clicked.connect(self.add_class)
-        self.delete_btn = QPushButton("Удалить")
+        self.delete_btn = QPushButton(tr("Удалить"))
         self.delete_btn.clicked.connect(self.delete_selected)
-        self.rename_btn = QPushButton("Переименовать")
+        self.rename_btn = QPushButton(tr("Переименовать"))
         self.rename_btn.clicked.connect(self.rename_selected)
-        self.color_btn = QPushButton("Изменить цвет")
+        self.color_btn = QPushButton(tr("Изменить цвет"))
         self.color_btn.clicked.connect(self.change_color_selected)
         btn_layout.addWidget(self.add_group_btn)
         btn_layout.addWidget(self.add_class_btn)
@@ -44,7 +45,7 @@ class TypeDialog(QDialog):
         tree_layout.addLayout(btn_layout)
 
         self.tree = ClassHierarchyWidget()
-        self.tree.setHeaderLabels(["Класс / Группа", "Количество"])
+        self.tree.setHeaderLabels([tr("Класс / Группа"), tr("Количество")])
         self.tree.setColumnWidth(0, 300)
         self.tree.setColumnWidth(1, 80)
         self.tree.setDragEnabled(True)
@@ -54,16 +55,16 @@ class TypeDialog(QDialog):
         self.tree.itemClicked.connect(self.on_item_clicked)
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.tree.hierarchy_changed.connect(self.on_hierarchy_changed)
-        self.tree.delete_class_requested.connect(self.on_delete_class_requested)  # подключение сигнала
+        self.tree.delete_class_requested.connect(self.on_delete_class_requested)
         tree_layout.addWidget(self.tree)
 
         tree_group.setLayout(tree_layout)
         layout.addWidget(tree_group)
 
         btn_ok_cancel = QHBoxLayout()
-        self.ok_btn = QPushButton("OK")
+        self.ok_btn = QPushButton(tr("OK"))
         self.ok_btn.clicked.connect(self.accept)
-        self.cancel_btn = QPushButton("Отмена")
+        self.cancel_btn = QPushButton(tr("Отмена"))
         self.cancel_btn.clicked.connect(self.reject)
         btn_ok_cancel.addStretch()
         btn_ok_cancel.addWidget(self.ok_btn)
@@ -116,24 +117,22 @@ class TypeDialog(QDialog):
         pass
 
     def on_delete_class_requested(self, class_name):
-        # Выделяем класс для наглядности
         self.select_class(class_name)
-        # Вызываем ту же логику, что и при нажатии кнопки "Удалить"
         self.delete_selected()
 
     def add_group(self):
-        name, ok = QInputDialog.getText(self, "Новая группа", "Введите название группы:")
+        name, ok = QInputDialog.getText(self, tr("Новая группа"), tr("Введите название группы:"))
         if ok and name.strip():
             self.tree.add_group(name.strip())
             self.on_hierarchy_changed()
 
     def add_class(self):
-        name, ok = QInputDialog.getText(self, "Новый класс", "Введите имя класса:")
+        name, ok = QInputDialog.getText(self, tr("Новый класс"), tr("Введите имя класса:"))
         if not ok or not name.strip():
             return
         name = name.strip()
         if self.class_exists(name):
-            QMessageBox.warning(self, "Ошибка", f"Класс '{name}' уже существует.")
+            QMessageBox.warning(self, tr("Ошибка"), f"{tr('Класс')} '{name}' {tr('уже существует.')}")
             return
 
         parent_item = self.tree.currentItem()
@@ -172,8 +171,8 @@ class TypeDialog(QDialog):
             return
 
         if item.data(0, Qt.UserRole) == "group":
-            reply = QMessageBox.question(self, "Удаление группы",
-                                         f"Удалить группу '{item.text(0)}' и всё содержимое?",
+            reply = QMessageBox.question(self, tr("Удаление группы"),
+                                         f"{tr('Удалить группу')} '{item.text(0)}' {tr('и всё содержимое?')}",
                                          QMessageBox.Yes | QMessageBox.No)
             if reply != QMessageBox.Yes:
                 return
@@ -195,13 +194,13 @@ class TypeDialog(QDialog):
         item = self.tree.currentItem()
         if not item:
             return
-        new_name, ok = QInputDialog.getText(self, "Переименование",
-                                            "Новое имя:", text=item.text(0))
+        new_name, ok = QInputDialog.getText(self, tr("Переименование"),
+                                            tr("Новое имя:"), text=item.text(0))
         if ok and new_name.strip():
             old_name = item.text(0)
             if item.data(0, Qt.UserRole) == "class":
                 if self.class_exists(new_name.strip()) and new_name.strip() != old_name:
-                    QMessageBox.warning(self, "Ошибка", f"Класс '{new_name.strip()}' уже существует.")
+                    QMessageBox.warning(self, tr("Ошибка"), f"{tr('Класс')} '{new_name.strip()}' {tr('уже существует.')}")
                     return
             item.setText(0, new_name.strip())
             self.on_hierarchy_changed()
@@ -215,7 +214,7 @@ class TypeDialog(QDialog):
         class_name = item.text(0)
         current_color = self.project.class_colors.get(class_name, "#ffffff")
         color = QColorDialog.getColor(QColor(current_color), self,
-                                      f"Выберите цвет для класса {class_name}")
+                                      f"{tr('Выберите цвет для класса')} {class_name}")
         if color.isValid():
             self.project.class_colors[class_name] = color.name()
             pixmap = QPixmap(14, 14)

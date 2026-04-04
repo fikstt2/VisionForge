@@ -4,11 +4,12 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QGroupBox, QRadioButton, QMessageBox)
 from ui.theme import get_current_theme_style
 from project.importers import import_yolo, import_coco, import_voc
+from core.i18n import tr
 
 class ImportDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Импорт аннотаций")
+        self.setWindowTitle(tr("Импорт аннотаций"))
         self.setModal(True)
         self.setMinimumWidth(500)
         self.setStyleSheet(get_current_theme_style())
@@ -19,29 +20,29 @@ class ImportDialog(QDialog):
 
         # Формат
         fmt_layout = QHBoxLayout()
-        fmt_layout.addWidget(QLabel("Формат:"))
+        fmt_layout.addWidget(QLabel(tr("Формат:")))
         self.format_combo = QComboBox()
-        self.format_combo.addItems(["YOLO", "COCO", "Pascal VOC"])
+        self.format_combo.addItems([tr("YOLO"), tr("COCO"), tr("Pascal VOC")])
         fmt_layout.addWidget(self.format_combo)
         fmt_layout.addStretch()
         layout.addLayout(fmt_layout)
 
         # Источник
         src_layout = QHBoxLayout()
-        src_layout.addWidget(QLabel("Источник:"))
+        src_layout.addWidget(QLabel(tr("Источник:")))
         self.source_edit = QLineEdit()
-        self.source_edit.setPlaceholderText("Путь к папке или файлу")
+        self.source_edit.setPlaceholderText(tr("Путь к папке или файлу"))
         src_layout.addWidget(self.source_edit)
-        self.browse_btn = QPushButton("Обзор...")
+        self.browse_btn = QPushButton(tr("Обзор..."))
         self.browse_btn.clicked.connect(self.browse)
         src_layout.addWidget(self.browse_btn)
         layout.addLayout(src_layout)
 
         # Действие
-        action_group = QGroupBox("Действие")
+        action_group = QGroupBox(tr("Действие"))
         action_layout = QHBoxLayout()
-        self.add_radio = QRadioButton("Добавить к текущему проекту")
-        self.new_radio = QRadioButton("Создать новый проект")
+        self.add_radio = QRadioButton(tr("Добавить к текущему проекту"))
+        self.new_radio = QRadioButton(tr("Создать новый проект"))
         self.add_radio.setChecked(True)
         action_layout.addWidget(self.add_radio)
         action_layout.addWidget(self.new_radio)
@@ -50,9 +51,9 @@ class ImportDialog(QDialog):
 
         # Кнопки
         btn_layout = QHBoxLayout()
-        self.import_btn = QPushButton("Импортировать")
+        self.import_btn = QPushButton(tr("Импортировать"))
         self.import_btn.clicked.connect(self.do_import)
-        self.cancel_btn = QPushButton("Отмена")
+        self.cancel_btn = QPushButton(tr("Отмена"))
         self.cancel_btn.clicked.connect(self.reject)
         btn_layout.addStretch()
         btn_layout.addWidget(self.import_btn)
@@ -62,11 +63,11 @@ class ImportDialog(QDialog):
     def browse(self):
         fmt = self.format_combo.currentText()
         if fmt == "COCO":
-            path, _ = QFileDialog.getOpenFileName(self, "Выберите COCO JSON", "", "JSON files (*.json)")
+            path, _ = QFileDialog.getOpenFileName(self, tr("Выберите COCO JSON"), "", "JSON files (*.json)")
         elif fmt == "Pascal VOC":
-            path = QFileDialog.getExistingDirectory(self, "Выберите папку с XML-файлами")
+            path = QFileDialog.getExistingDirectory(self, tr("Выберите папку с XML-файлами"))
         else:
-            path = QFileDialog.getExistingDirectory(self, "Выберите корневую папку (с images и labels)")
+            path = QFileDialog.getExistingDirectory(self, tr("Выберите корневую папку (с images и labels)"))
         if path:
             self.source_edit.setText(path)
 
@@ -74,7 +75,7 @@ class ImportDialog(QDialog):
         source = self.source_edit.text().strip()
         fmt = self.format_combo.currentText()
         if not source:
-            QMessageBox.warning(self, "Ошибка", "Укажите источник.")
+            QMessageBox.warning(self, tr("Ошибка"), tr("Укажите источник."))
             return
 
         try:
@@ -85,11 +86,11 @@ class ImportDialog(QDialog):
             else:
                 data, classes = import_voc(source)
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка импорта", f"Не удалось импортировать:\n{str(e)}")
+            QMessageBox.critical(self, tr("Ошибка импорта"), f"{tr('Не удалось импортировать')}:\n{str(e)}")
             return
 
         if not data:
-            QMessageBox.information(self, "Импорт", "Не найдено аннотаций.")
+            QMessageBox.information(self, tr("Импорт"), tr("Не найдено аннотаций."))
             return
 
         self.result_data = (data, classes)

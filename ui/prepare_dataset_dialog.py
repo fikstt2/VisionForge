@@ -9,47 +9,52 @@ from ui.theme import get_current_theme_style
 from project.dataset_preparer import prepare_detection_dataset, prepare_classification_dataset
 from project.project_manager import Project
 from ui.class_hierarchy_widget import ClassHierarchyWidget
+from core.i18n import tr
 
 class PrepareDatasetDialog(QDialog):
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = main_window
-        self.setWindowTitle("Подготовка датасета")
+        self.setWindowTitle(tr("Подготовка датасета"))
         self.setModal(True)
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(650)
+        self.setMinimumWidth(900)
+        self.setMinimumHeight(720)
         self.setStyleSheet(get_current_theme_style())
 
         layout = QVBoxLayout(self)
 
         # Тип задачи
-        task_group = QGroupBox("Тип задачи")
+        task_group = QGroupBox(tr("Тип задачи"))
         task_layout = QHBoxLayout()
-        self.task_detection = QRadioButton("Детекция")
-        self.task_classification = QRadioButton("Классификация")
+        self.task_detection = QRadioButton(tr("Детекция"))
+        self.task_segmentation = QRadioButton(tr("Сегментация"))
+        self.task_classification = QRadioButton(tr("Классификация"))
         self.task_detection.setChecked(True)
         self.task_detection.toggled.connect(self.on_task_changed)
+        self.task_segmentation.toggled.connect(self.on_task_changed)
+
         task_layout.addWidget(self.task_detection)
+        task_layout.addWidget(self.task_segmentation)
         task_layout.addWidget(self.task_classification)
         task_layout.addStretch()
         task_group.setLayout(task_layout)
         layout.addWidget(task_group)
 
         # Выбор проекта
-        source_group = QGroupBox("Исходный проект")
+        source_group = QGroupBox(tr("Исходный проект"))
         source_layout = QVBoxLayout()
-        self.source_main = QRadioButton("Основной проект")
-        self.source_auto = QRadioButton("Авто-проект")
-        self.source_other = QRadioButton("Другая папка")
+        self.source_main = QRadioButton(tr("Основной проект"))
+        self.source_auto = QRadioButton(tr("Авто-проект"))
+        self.source_other = QRadioButton(tr("Другая папка"))
         self.source_main.setChecked(True)
         source_layout.addWidget(self.source_main)
         source_layout.addWidget(self.source_auto)
         source_layout.addWidget(self.source_other)
 
         self.other_path_edit = QLineEdit()
-        self.other_path_edit.setPlaceholderText("Путь к папке с изображениями и annotations.json")
+        self.other_path_edit.setPlaceholderText(tr("Путь к папке с изображениями и annotations.json"))
         self.other_path_edit.setEnabled(False)
-        other_browse = QPushButton("Обзор...")
+        other_browse = QPushButton(tr("Обзор..."))
         other_browse.clicked.connect(self.browse_other)
         other_layout = QHBoxLayout()
         other_layout.addWidget(self.other_path_edit)
@@ -60,243 +65,172 @@ class PrepareDatasetDialog(QDialog):
         source_group.setLayout(source_layout)
         layout.addWidget(source_group)
 
-        # Кнопка загрузки классов
-        load_btn_layout = QHBoxLayout()
-        self.load_classes_btn = QPushButton("Загрузить классы из проекта")
-        self.load_classes_btn.clicked.connect(self.load_classes)
-        load_btn_layout.addWidget(self.load_classes_btn)
-        layout.addLayout(load_btn_layout)
+        # Выбор классов для иерархии
+        self.class_group = QGroupBox(tr("Выбор классов (будут объединены по иерархии)"))
+        class_layout = QVBoxLayout()
+        self.class_tree = ClassHierarchyWidget()
+        class_layout.addWidget(self.class_tree)
+        self.class_group.setLayout(class_layout)
+        layout.addWidget(self.class_group)
 
-        # Группа для отображения иерархии классов (только просмотр)
-        hierarchy_group = QGroupBox("Иерархия классов (из проекта)")
-        hierarchy_layout = QVBoxLayout()
-        self.hierarchy_tree = ClassHierarchyWidget()
-        self.hierarchy_tree.setHeaderLabels(["Класс / Группа", "Количество"])
-        self.hierarchy_tree.setColumnWidth(0, 250)
-        self.hierarchy_tree.setColumnWidth(1, 80)
-        self.hierarchy_tree.setDragEnabled(False)
-        self.hierarchy_tree.setAcceptDrops(False)
-        self.hierarchy_tree.setSelectionMode(QAbstractItemView.NoSelection)
-        hierarchy_layout.addWidget(self.hierarchy_tree)
-        hierarchy_group.setLayout(hierarchy_layout)
-        layout.addWidget(hierarchy_group)
-
-        # Опция использования суперклассов
-        self.use_superclass_check = QCheckBox("Использовать суперклассы (объединять в группы)")
-        self.use_superclass_check.setChecked(False)
-        self.use_superclass_check.setToolTip("Если включено, каждый класс заменяется именем его родительской группы.\nЕсли класс не в группе, остаётся как есть.")
-        layout.addWidget(self.use_superclass_check)
-
-        # Разбиение
-        split_group = QGroupBox("Разбиение на выборки")
-        split_layout = QVBoxLayout()
-
-        train_layout = QHBoxLayout()
-        train_layout.addWidget(QLabel("Train:"))
+        # Настройки разбиения
+        split_group = QGroupBox(tr("Разбиение данных"))
+        split_layout = QHBoxLayout()
+        split_layout.addWidget(QLabel(tr("Train:")))
         self.train_spin = QDoubleSpinBox()
-        self.train_spin.setRange(0.0, 1.0)
-        self.train_spin.setSingleStep(0.05)
+        self.train_spin.setRange(0.1, 1.0)
         self.train_spin.setValue(0.8)
-        self.train_spin.valueChanged.connect(self.on_split_changed)
-        train_layout.addWidget(self.train_spin)
-        train_layout.addStretch()
-        split_layout.addLayout(train_layout)
+        self.train_spin.setSingleStep(0.05)
+        split_layout.addWidget(self.train_spin)
 
-        val_layout = QHBoxLayout()
-        val_layout.addWidget(QLabel("Validation:"))
+        split_layout.addWidget(QLabel(tr("Val:")))
         self.val_spin = QDoubleSpinBox()
-        self.val_spin.setRange(0.0, 1.0)
-        self.val_spin.setSingleStep(0.05)
+        self.val_spin.setRange(0.0, 0.5)
         self.val_spin.setValue(0.2)
-        self.val_spin.valueChanged.connect(self.on_split_changed)
-        val_layout.addWidget(self.val_spin)
-        val_layout.addStretch()
-        split_layout.addLayout(val_layout)
+        self.val_spin.setSingleStep(0.05)
+        split_layout.addWidget(self.val_spin)
 
-        test_layout = QHBoxLayout()
-        test_layout.addWidget(QLabel("Test (остаток):"))
+        split_layout.addWidget(QLabel(tr("Test:")))
         self.test_spin = QDoubleSpinBox()
-        self.test_spin.setRange(0.0, 1.0)
-        self.test_spin.setSingleStep(0.05)
+        self.test_spin.setRange(0.0, 0.5)
         self.test_spin.setValue(0.0)
-        self.test_spin.setReadOnly(True)
-        self.test_spin.setButtonSymbols(QDoubleSpinBox.NoButtons)
-        test_layout.addWidget(self.test_spin)
-        test_layout.addStretch()
-        split_layout.addLayout(test_layout)
+        self.test_spin.setSingleStep(0.05)
+        split_layout.addWidget(self.test_spin)
 
         split_group.setLayout(split_layout)
         layout.addWidget(split_group)
 
-        # Дополнительные настройки для классификации
-        self.classif_group = QGroupBox("Настройки классификации")
-        classif_layout = QVBoxLayout()
-
-        self.crop_boxes_check = QCheckBox("Вырезать объекты (crop boxes)")
-        self.crop_boxes_check.setChecked(True)
-        classif_layout.addWidget(self.crop_boxes_check)
-
-        multi_layout = QHBoxLayout()
-        multi_layout.addWidget(QLabel("Если несколько боксов на изображении:"))
-        self.multi_combo = QComboBox()
-        self.multi_combo.addItem("Использовать первый", "first")
-        self.multi_combo.addItem("Пропускать", "skip")
-        self.multi_combo.addItem("Предупреждать и использовать первый", "warn")
-        multi_layout.addWidget(self.multi_combo)
-        multi_layout.addStretch()
-        classif_layout.addLayout(multi_layout)
-
-        self.classif_group.setLayout(classif_layout)
-        layout.addWidget(self.classif_group)
-        self.classif_group.setVisible(False)
-
-        # Путь для сохранения датасета
-        dest_group = QGroupBox("Папка для сохранения датасета")
-        dest_layout = QHBoxLayout()
-        self.dest_edit = QLineEdit()
-        self.dest_edit.setPlaceholderText("Выберите папку...")
-        dest_browse = QPushButton("Обзор...")
-        dest_browse.clicked.connect(self.browse_dest)
-        dest_layout.addWidget(self.dest_edit)
-        dest_layout.addWidget(dest_browse)
-        dest_group.setLayout(dest_layout)
-        layout.addWidget(dest_group)
+        # Выходная папка
+        out_group = QGroupBox(tr("Выходная папка"))
+        out_layout = QHBoxLayout()
+        self.output_edit = QLineEdit()
+        self.output_edit.setText(os.path.join(os.getcwd(), "dataset_export"))
+        out_browse = QPushButton(tr("Обзор..."))
+        out_browse.clicked.connect(self.browse_output)
+        out_layout.addWidget(self.output_edit)
+        out_layout.addWidget(out_browse)
+        out_group.setLayout(out_layout)
+        layout.addWidget(out_group)
 
         # Кнопки
         btn_layout = QHBoxLayout()
-        self.create_btn = QPushButton("Создать датасет")
-        self.create_btn.clicked.connect(self.create_dataset)
-        self.cancel_btn = QPushButton("Отмена")
-        self.cancel_btn.clicked.connect(self.reject)
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.create_btn)
-        btn_layout.addWidget(self.cancel_btn)
+        self.prepare_btn = QPushButton(tr("Подготовить"))
+        self.prepare_btn.clicked.connect(self.run_prepare)
+        self.prepare_btn.setMinimumHeight(40)
+        self.prepare_btn.setStyleSheet("font-weight: bold; background-color: #2e7d32; color: white;")
+        cancel_btn = QPushButton(tr("Отмена"))
+        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.setMinimumHeight(40)
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(self.prepare_btn)
         layout.addLayout(btn_layout)
 
-        self.on_split_changed()
+        # Инициализация списка классов
+        self.update_classes()
+        self.source_main.toggled.connect(self.update_classes)
+        self.source_auto.toggled.connect(self.update_classes)
+        self.other_path_edit.textChanged.connect(self.update_classes)
 
     def on_task_changed(self):
-        is_classif = self.task_classification.isChecked()
-        self.classif_group.setVisible(is_classif)
+        is_cls = self.task_classification.isChecked()
+        self.class_group.setVisible(not is_cls)
+        self.update_classes()
 
     def browse_other(self):
-        folder = QFileDialog.getExistingDirectory(self, "Выберите папку проекта")
+        folder = QFileDialog.getExistingDirectory(self, tr("Выберите папку с проектом"))
         if folder:
             self.other_path_edit.setText(folder)
 
-    def browse_dest(self):
-        folder = QFileDialog.getExistingDirectory(self, "Выберите папку для сохранения датасета")
+    def browse_output(self):
+        folder = QFileDialog.getExistingDirectory(self, tr("Выберите папку для сохранения датасета"))
         if folder:
-            self.dest_edit.setText(folder)
+            self.output_edit.setText(folder)
 
-    def on_split_changed(self):
-        train = self.train_spin.value()
-        val = self.val_spin.value()
-        if train + val > 1.0:
-            excess = train + val - 1.0
-            self.train_spin.setValue(train - excess/2)
-            self.val_spin.setValue(val - excess/2)
-            train = self.train_spin.value()
-            val = self.val_spin.value()
-        test = 1.0 - train - val
-        self.test_spin.setValue(test)
+    def update_classes(self):
+        project = self.get_project()
+        if project:
+            if self.task_classification.isChecked():
+                self.class_tree.populate_from_hierarchy([], {}, {})
+            else:
+                self.class_tree.populate_from_hierarchy(
+                    project.class_hierarchy,
+                    project.class_colors,
+                    {}
+                )
 
-    def get_selected_project(self):
+    def get_project(self):
         if self.source_main.isChecked():
             return self.main_window.main_project
         elif self.source_auto.isChecked():
             return self.main_window.auto_project
         else:
-            folder = self.other_path_edit.text().strip()
-            if not folder or not os.path.isdir(folder):
-                QMessageBox.warning(self, "Ошибка", "Укажите существующую папку проекта.")
-                return None
-            json_path = os.path.join(folder, "annotations.json")
-            if not os.path.exists(json_path):
-                QMessageBox.warning(self, "Ошибка", "В папке нет файла annotations.json.")
-                return None
-            return Project(folder, json_path)
+            path = self.other_path_edit.text()
+            if os.path.exists(path):
+                try:
+                    return Project(path, os.path.join(path, "annotations.json"))
+                except:
+                    return None
+        return None
 
-    def load_classes(self):
-        project = self.get_selected_project()
-        if project is None:
-            return
-        project.load()
-        counts = {}
-        for boxes in project.annotations.values():
-            for box in boxes:
-                cls = box.get('class', 'unknown')
-                counts[cls] = counts.get(cls, 0) + 1
-        self.hierarchy_tree.populate_from_hierarchy(project.class_hierarchy, project.class_colors, counts)
-
-    def create_dataset(self):
-        dest = self.dest_edit.text().strip()
-        if not dest:
-            QMessageBox.warning(self, "Ошибка", "Укажите папку для сохранения датасета.")
+    def run_prepare(self):
+        project = self.get_project()
+        if not project:
+            QMessageBox.warning(self, tr("Ошибка"), tr("Проект не найден или некорректен"))
             return
 
-        project = self.get_selected_project()
-        if project is None:
+        out_dir = self.output_edit.text()
+        if not out_dir:
+            QMessageBox.warning(self, tr("Ошибка"), tr("Укажите выходную папку"))
             return
-        project.load()
 
-        train_ratio = self.train_spin.value()
-        val_ratio = self.val_spin.value()
-        test_ratio = self.test_spin.value()
-        is_classification = self.task_classification.isChecked()
-        use_superclass = self.use_superclass_check.isChecked()
+        # Проверяем сумму весов
+        total = self.train_spin.value() + self.val_spin.value() + self.test_spin.value()
+        if abs(total - 1.0) > 0.001:
+            QMessageBox.warning(self, tr("Ошибка"), tr("Сумма долей Train, Val, Test должна быть равна 1.0"))
+            return
 
-        class_mapping = {}
-        if use_superclass:
-            def process_item(item, parent_name=None):
-                if item.data(0, Qt.UserRole) == "class":
-                    orig_name = item.text(0)
-                    if parent_name:
-                        class_mapping[orig_name] = parent_name
-                else:
-                    group_name = item.text(0)
-                    for i in range(item.childCount()):
-                        process_item(item.child(i), group_name)
-            root = self.hierarchy_tree.invisibleRootItem()
-            for i in range(root.childCount()):
-                process_item(root.child(i))
+        selected_mapping = self.class_tree.get_mapping()
+        if not self.task_classification.isChecked() and not selected_mapping:
+            QMessageBox.warning(self, tr("Ошибка"), tr("Выберите хотя бы один класс для экспорта"))
+            return
+
+        progress = QProgressDialog(tr("Подготовка датасета..."), tr("Отмена"), 0, 100, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.show()
 
         try:
-            progress = QProgressDialog("Подготовка датасета...", "Отмена", 0, 0, self)
-            progress.setWindowModality(Qt.WindowModal)
-            progress.setCancelButton(None)
-            progress.show()
-
-            if is_classification:
-                crop_boxes = self.crop_boxes_check.isChecked()
-                handling = self.multi_combo.currentData()
-                train_cnt, val_cnt, test_cnt = prepare_classification_dataset(
-                    project, dest, train_ratio, val_ratio, test_ratio,
-                    class_mapping=class_mapping,
-                    crop_boxes=crop_boxes,
-                    multiple_boxes_handling=handling,
-                    excluded_classes=set()
+            if self.task_detection.isChecked() or self.task_segmentation.isChecked():
+                # Подготовка для детекции/сегментации
+                # dataset_preparer сам поймет, сегментация это или детекция на основе данных в боксах
+                # но мы можем передать флаг если захотим принудительно фильтровать
+                task_type = 'segmentation' if self.task_segmentation.isChecked() else 'detection'
+                train_count, val_count, test_count = prepare_detection_dataset(
+                    project=project, 
+                    output_dir=out_dir, 
+                    train_ratio=self.train_spin.value(),
+                    val_ratio=self.val_spin.value(),
+                    test_ratio=self.test_spin.value(),
+                    class_mapping=selected_mapping,
+                    task_type=task_type
                 )
-                progress.close()
-                msg = (f"Датасет классификации создан.\n"
-                       f"Train: {train_cnt} изображений\n"
-                       f"Val: {val_cnt} изображений\n"
-                       f"Test: {test_cnt} изображений\n\n"
-                       f"Образцы сохранены в {dest}")
             else:
-                train_cnt, val_cnt, test_cnt = prepare_detection_dataset(
-                    project, dest, train_ratio, val_ratio, test_ratio,
-                    class_mapping=class_mapping
+                # Подготовка для классификации
+                train_count, val_count, test_count = prepare_classification_dataset(
+                    project,
+                    out_dir,
+                    self.train_spin.value(),
+                    self.val_spin.value(),
+                    self.test_spin.value()
                 )
-                progress.close()
-                msg = (f"Датасет детекции создан.\n"
-                       f"Train: {train_cnt} изображений\n"
-                       f"Val: {val_cnt} изображений\n"
-                       f"Test: {test_cnt} изображений\n\n"
-                       f"Файл data.yaml сохранён в {dest}")
 
-            QMessageBox.information(self, "Готово", msg)
+            progress.setValue(100)
+            msg = f"{tr('Датасет успешно подготовлен!')}\n\n" \
+                  f"{tr('Train')}: {train_count}\n" \
+                  f"{tr('Val')}: {val_count}\n" \
+                  f"{tr('Test')}: {test_count}\n\n" \
+                  f"{tr('Путь')}: {out_dir}"
+            QMessageBox.information(self, tr("Готово"), msg)
             self.accept()
         except Exception as e:
             progress.close()
-            QMessageBox.critical(self, "Ошибка", f"Не удалось создать датасет:\n{str(e)}")
+            QMessageBox.critical(self, tr("Ошибка"), f"{tr('Ошибка при подготовке датасета')}: {str(e)}")

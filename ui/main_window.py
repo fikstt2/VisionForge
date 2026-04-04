@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QListWidget, QListWidgetItem,
                              QGroupBox, QFileDialog, QMessageBox, QInputDialog,
                              QDialog, QComboBox, QStackedWidget, QAction,
-                             QSplitter, QRadioButton, QColorDialog, QMenu)
+                             QSplitter, QRadioButton, QColorDialog, QMenu, QProgressBar)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, QThread
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QCursor
 from ui.theme import get_current_theme_style
@@ -32,6 +32,7 @@ import config
 from ultralytics import YOLO
 from core.utils import LimitedSizeDict
 from config import VERSION
+from core.i18n import tr
 class BatchWorker(QThread):
     progress = pyqtSignal(int, str)  # текущий индекс, имя файла
     finished = pyqtSignal(bool, str)  # успех, сообщение
@@ -52,13 +53,13 @@ class BatchWorker(QThread):
             total = len(self.images)
             for i, filename in enumerate(self.images):
                 if self.cancelled:
-                    self.finished.emit(False, "Отменено пользователем")
+                    self.finished.emit(False, tr("Отменено пользователем"))
                     return
                 self.progress.emit(i, filename)
                 self.process_one(filename)
-            self.finished.emit(True, f"Обработано {total} изображений")
+            self.finished.emit(True, f"{tr('Обработано')} {total} {tr('изображений')}")
         except Exception as e:
-            self.finished.emit(False, f"Ошибка: {str(e)}")
+            self.finished.emit(False, f"{tr('Ошибка')}: {str(e)}")
 
     def process_one(self, filename):
         src_path = os.path.join(self.source_dir, filename)
@@ -117,7 +118,7 @@ class BoxItemWidget(QWidget):
         layout.setSpacing(8)
 
         self.label = QLabel(text)
-        self.label.setStyleSheet("color: #ffffff; font-size: 11px;")
+        self.label.setStyleSheet("color: #f4f4f5; font-size: 12px;")
         layout.addWidget(self.label)
 
         layout.addStretch()
@@ -126,15 +127,16 @@ class BoxItemWidget(QWidget):
         self.delete_btn.setFixedSize(18, 18)
         self.delete_btn.setStyleSheet("""
             QPushButton {
-                background-color: #c0392b;
+                background-color: #ef4444;
                 color: white;
                 border: none;
                 border-radius: 10px;
                 font-size: 12px;
                 font-weight: bold;
+                padding: 0px;
             }
             QPushButton:hover {
-                background-color: #e74c3c;
+                background-color: #f87171;
             }
         """)
         self.delete_btn.clicked.connect(self.on_delete)
@@ -147,18 +149,18 @@ class BoxItemWidget(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("VisionForge - Инструмент разметки")
+        self.setWindowTitle(tr("VisionForge - Инструмент разметки"))
         self.setGeometry(100, 100, 1300, 800)
         self.setStyleSheet(get_current_theme_style())  # тема из ui.theme
 
         # Данные проекта
         self.main_project = Project(config.SCREENSHOTS_DIR, config.MAIN_JSON)
-        self.auto_project = Project(os.path.dirname(config.AUTO_JSON), config.AUTO_JSON)
+        self.auto_project = Project(config.AUTO_IMAGES_DIR, config.AUTO_JSON)
         self.current_project = self.main_project
         self.current_mode = 'main'
         self.current_index = 0
         self.filtered_images = []
-        self.filter_type = "Все"
+        self.filter_type = tr("Все")
 
         # Модели
         self.detector = None
@@ -185,7 +187,7 @@ class MainWindow(QMainWindow):
         self.central_stack.addWidget(self.training_widget)
 
         # Статус бар
-        self.status_label = QLabel("Готов к работе")
+        self.status_label = QLabel(tr("Готов к работе"))
         self.status_label.setStyleSheet("color: #0d7377; font-weight: bold;")
         self.statusBar().addWidget(self.status_label, 1)
 
@@ -198,12 +200,12 @@ class MainWindow(QMainWindow):
         # Безопасная загрузка проектов
         ok_main, msg_main = self.safe_load_project(self.main_project)
         if not ok_main:
-            print(f"Предупреждение: основной проект повреждён ({msg_main}). Создаётся новый.")
+            print(f"{tr('Предупреждение')}: {tr('основной проект повреждён')} ({msg_main}). {tr('Создаётся новый.')}")
             self._reset_project(self.main_project)
 
         ok_auto, msg_auto = self.safe_load_project(self.auto_project)
         if not ok_auto:
-            print(f"Предупреждение: авто-проект повреждён ({msg_auto}). Создаётся новый.")
+            print(f"{tr('Предупреждение')}: {tr('авто-проект повреждён')} ({msg_auto}). {tr('Создаётся новый.')}")
             self._reset_project(self.auto_project)
 
         self.current_project = self.main_project
@@ -219,6 +221,13 @@ class MainWindow(QMainWindow):
         self.thumb_bar.load_visible_thumbnails()
 
         self.load_current_image()
+
+        from core.i18n import get_translator
+        get_translator().languageChanged.connect(self.retranslate_ui)
+
+        # Показать хаб проектов при запуске (отложенно, чтобы окно успело появиться)
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(0, self.show_project_hub)
 
     # ---------- Вспомогательные методы для безопасной загрузки ----------
     def safe_load_project(self, project):
@@ -242,7 +251,11 @@ class MainWindow(QMainWindow):
         """Обновляет интерфейс после загрузки нового проекта."""
         self.update_filter_combo()
         self.update_filtered_images()
+        
         self.current_index = 0
+        if getattr(self.current_project, 'last_image', None) and self.current_project.last_image in self.filtered_images:
+            self.current_index = self.filtered_images.index(self.current_project.last_image)
+            
         self.load_current_image()
         self.thumb_bar.clear()
         for f in self.filtered_images:
@@ -251,96 +264,122 @@ class MainWindow(QMainWindow):
         if self.current_project.classes:
             self.widget.current_class = self.current_project.classes[0]
             self.widget.set_classes(self.current_project.classes, self.widget.current_class)
-            self.class_label.setText(f"Класс: {self.widget.current_class}")
+            self.class_label.setText(f"{tr('Класс')}: {self.widget.current_class}")
         self.update_class_tree()
         self.current_project.save()  # необязательно, но для синхронизации
+        
+        # Добавляем в недавние проекты
+        import config
+        folder = self.current_project.images_dir
+        json_path = self.current_project.annotations_file
+        name = os.path.basename(folder)
+        thumb = ""
+        if getattr(self.current_project, 'last_image', None) and self.current_project.last_image in self.filtered_images:
+            thumb = os.path.join(folder, self.current_project.last_image)
+        elif self.filtered_images:
+            thumb = os.path.join(folder, self.filtered_images[0])
+            
+        config.add_recent_project({
+            "path": folder,
+            "json_path": json_path,
+            "name": name,
+            "thumbnail": thumb,
+            "description": ""
+        })
+        
+        # Обновляем глобальные пути
+        cfg = config.load_config()
+        cfg["main_images_dir"] = folder
+        cfg["main_json"] = json_path
+        config.save_config(cfg)
 
     # ---------- Меню ----------
     def create_menus(self):
         menubar = self.menuBar()
+        menubar.clear()
 
         # Файл
-        file_menu = menubar.addMenu('Файл')
+        self.file_menu = menubar.addMenu(tr('Файл'))
 
-        new_project_action = QAction('Новый проект', self)
+        new_project_action = QAction(tr('Новый проект'), self)
         new_project_action.triggered.connect(self.new_project)
-        file_menu.addAction(new_project_action)
+        self.file_menu.addAction(new_project_action)
 
-        open_project_action = QAction('Открыть проект', self)
+        open_project_action = QAction(tr('Открыть проект'), self)
         open_project_action.triggered.connect(self.open_project)
-        file_menu.addAction(open_project_action)
+        self.file_menu.addAction(open_project_action)
 
-        save_project_action = QAction('Сохранить проект', self)
+        save_project_action = QAction(tr('Сохранить проект'), self)
         save_project_action.triggered.connect(self.save_project)
-        file_menu.addAction(save_project_action)
+        self.file_menu.addAction(save_project_action)
 
-        save_project_as_action = QAction('Сохранить проект как...', self)
+        save_project_as_action = QAction(tr('Сохранить проект как...'), self)
         save_project_as_action.triggered.connect(self.save_project_as)
-        file_menu.addAction(save_project_as_action)
+        self.file_menu.addAction(save_project_as_action)
 
-        file_menu.addSeparator()
+        self.file_menu.addSeparator()
 
-        import_action = QAction('Импорт аннотаций...', self)
+        import_action = QAction(tr('Импорт аннотаций...'), self)
         import_action.triggered.connect(self.import_annotations)
-        file_menu.addAction(import_action)
+        self.file_menu.addAction(import_action)
 
-        file_menu.addSeparator()
+        self.file_menu.addSeparator()
 
-        export_menu = file_menu.addMenu('Экспорт')
-        export_yolo_action = QAction('YOLO', self)
+        self.export_menu = self.file_menu.addMenu(tr('Экспорт'))
+        export_yolo_action = QAction(tr('YOLO'), self)
         export_yolo_action.triggered.connect(self.export_yolo)
-        export_menu.addAction(export_yolo_action)
-        export_coco_action = QAction('COCO', self)
+        self.export_menu.addAction(export_yolo_action)
+        export_coco_action = QAction(tr('COCO'), self)
         export_coco_action.triggered.connect(self.export_coco)
-        export_menu.addAction(export_coco_action)
-        export_voc_action = QAction('Pascal VOC', self)
+        self.export_menu.addAction(export_coco_action)
+        export_voc_action = QAction(tr('Pascal VOC'), self)
         export_voc_action.triggered.connect(self.export_voc)
-        export_menu.addAction(export_voc_action)
+        self.export_menu.addAction(export_voc_action)
 
-        file_menu.addSeparator()
-        exit_action = QAction('Выход', self)
+        self.file_menu.addSeparator()
+        exit_action = QAction(tr('Выход'), self)
         exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        self.file_menu.addAction(exit_action)
 
         # Инструменты
-        tools_menu = menubar.addMenu('Инструменты')
+        self.tools_menu = menubar.addMenu(tr('Инструменты'))
 
-        detection_action = QAction('Детекция в реальном времени', self)
+        detection_action = QAction(tr('Детекция в реальном времени'), self)
         detection_action.triggered.connect(self.start_overlay)
-        tools_menu.addAction(detection_action)
+        self.tools_menu.addAction(detection_action)
 
-        batch_action = QAction('Пакетная разметка', self)
+        batch_action = QAction(tr('Пакетная разметка'), self)
         batch_action.triggered.connect(self.batch_process)
-        tools_menu.addAction(batch_action)
+        self.tools_menu.addAction(batch_action)
 
-        prepare_dataset_action = QAction('Подготовить датасет', self)
+        prepare_dataset_action = QAction(tr('Подготовить датасет'), self)
         prepare_dataset_action.triggered.connect(self.prepare_dataset)
-        tools_menu.addAction(prepare_dataset_action)
+        self.tools_menu.addAction(prepare_dataset_action)
 
-        stats_action = QAction('Статистика проекта', self)
+        stats_action = QAction(tr('Статистика проекта'), self)
         stats_action.triggered.connect(self.show_statistics)
-        tools_menu.addAction(stats_action)
+        self.tools_menu.addAction(stats_action)
 
         # Обучение
-        train_menu = menubar.addMenu('Обучение')
-        train_action = QAction('Открыть обучение', self)
+        self.train_menu = menubar.addMenu(tr('Обучение'))
+        train_action = QAction(tr('Открыть обучение'), self)
         train_action.triggered.connect(self.switch_to_training_mode)
-        train_menu.addAction(train_action)
+        self.train_menu.addAction(train_action)
 
         # Настройки
-        settings_menu = menubar.addMenu('Настройки')
-        settings_action = QAction('Параметры', self)
+        self.settings_menu = menubar.addMenu(tr('Настройки'))
+        settings_action = QAction(tr('Параметры'), self)
         settings_action.triggered.connect(self.open_settings)
-        settings_menu.addAction(settings_action)
+        self.settings_menu.addAction(settings_action)
 
         # Справка
-        help_menu = menubar.addMenu('Справка')
-        help_action = QAction('Горячие клавиши', self)
+        self.help_menu = menubar.addMenu(tr('Справка'))
+        help_action = QAction(tr('Горячие клавиши'), self)
         help_action.triggered.connect(self.show_help)
-        help_menu.addAction(help_action)
-        about_action = QAction('О программе', self)
+        self.help_menu.addAction(help_action)
+        about_action = QAction(tr('О программе'), self)
         about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+        self.help_menu.addAction(about_action)
 
     # ---------- Интерфейс разметки ----------
     def setup_annotation_ui(self):
@@ -350,16 +389,143 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(2)
-        splitter.setStyleSheet("QSplitter::handle { background-color: #3c3c3c; }")
-
-        # Виджет аннотации
+        # ====== ВИДЖЕТ АННОТАЦИИ (Инициализируем заранее, т.к. к нему привязаны кнопки) ======
         self.widget = AnnotationWidget()
         self.widget.selection_changed.connect(self.on_selection_changed)
         self.widget.status_message.connect(self.update_status)
         self.widget.boxes_changed.connect(self.on_boxes_changed)
         self.widget.show_type_dialog_requested.connect(self.open_type_dialog)
+
+        # ====== HUD OVERLAY ======
+        hud_layout = QVBoxLayout(self.widget)
+        hud_layout.setContentsMargins(0, 15, 0, 0)
+        hud_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        
+        hud_container = QWidget()
+        hud_container.setStyleSheet("background: transparent;")
+        
+        top_bar = QHBoxLayout(hud_container)
+        top_bar.setContentsMargins(0, 0, 0, 0)
+        top_bar.setSpacing(4)
+        
+        btn_style = "QPushButton { padding: 0px; background-color: rgba(60,60,60,180); color: white; border: 1px solid #555; border-radius: 12px; font-weight: bold; } QPushButton:hover { background-color: rgba(80,80,80,200); }"
+        
+        self.btn_prev = QPushButton(tr("◀"))
+        self.btn_prev.setFixedSize(28, 28)
+        self.btn_prev.setStyleSheet(btn_style)
+        self.btn_prev.setToolTip(tr("Предыдущее изображение"))
+        self.btn_prev.clicked.connect(self.prev_image)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedSize(250, 24)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setAlignment(Qt.AlignCenter)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                background-color: rgba(24, 24, 27, 180);
+                color: white;
+                font-family: 'Segoe UI', 'Inter', 'Roboto', sans-serif;
+                font-weight: bold;
+                font-size: 13px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: rgba(99, 102, 241, 180); /* Indigo */
+                border-radius: 10px;
+                margin: 2px;
+            }
+        """)
+        
+        self.btn_next = QPushButton(tr("▶"))
+        self.btn_next.setFixedSize(28, 28)
+        self.btn_next.setStyleSheet(btn_style)
+        self.btn_next.setToolTip(tr("Следующее изображение"))
+        self.btn_next.clicked.connect(self.next_image)
+        
+        top_bar.addWidget(self.btn_prev)
+        top_bar.addWidget(self.progress_bar)
+        top_bar.addWidget(self.btn_next)
+        
+        hud_layout.addWidget(hud_container)
+        
+        # ====== MIDDLE SECTION ======
+        middle_layout = QHBoxLayout()
+        middle_layout.setContentsMargins(0, 0, 0, 0)
+        middle_layout.setSpacing(0)
+        
+        # --- LEFT TOOLBAR ---
+        left_toolbar = QVBoxLayout()
+        left_toolbar.setContentsMargins(5, 10, 5, 10)
+        left_toolbar.setSpacing(8)
+        left_toolbar.setAlignment(Qt.AlignTop)
+        
+        btn_style = """
+            QPushButton {
+                font-size: 16px;
+                padding: 0px;
+                background-color: #27272a;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #3f3f46; }
+            QPushButton:checked { background-color: #4f46e5; border: 1px solid #818cf8; }
+        """
+        
+        self.btn_box_mode = QPushButton("⬜")
+        self.btn_box_mode.setFixedSize(36, 36)
+        self.btn_box_mode.setCheckable(True)
+        self.btn_box_mode.setChecked(True)
+        self.btn_box_mode.setToolTip(tr("Бокс (B)"))
+        self.btn_box_mode.setStyleSheet(btn_style)
+        self.btn_box_mode.clicked.connect(self.set_box_mode)
+        
+        self.btn_poly_mode = QPushButton("⬡")
+        self.btn_poly_mode.setFixedSize(36, 36)
+        self.btn_poly_mode.setCheckable(True)
+        self.btn_poly_mode.setToolTip(tr("Полигон (P)"))
+        self.btn_poly_mode.setStyleSheet(btn_style)
+        self.btn_poly_mode.clicked.connect(self.set_poly_mode)
+        
+        self.btn_auto = QPushButton("🤖")
+        self.btn_auto.setFixedSize(36, 36)
+        self.btn_auto.setToolTip(tr("Авторазметка (A)"))
+        self.btn_auto.setStyleSheet(btn_style)
+        self.btn_auto.clicked.connect(self.auto_annotate)
+        
+        self.btn_next_class = QPushButton("⏩")
+        self.btn_next_class.setFixedSize(36, 36)
+        self.btn_next_class.setToolTip(tr("След. класс (T)"))
+        self.btn_next_class.setStyleSheet(btn_style)
+        self.btn_next_class.clicked.connect(self.next_class)
+        
+        self.btn_delete_image = QPushButton("🗑️")
+        self.btn_delete_image.setFixedSize(36, 36)
+        self.btn_delete_image.setToolTip(tr("Удалить изобр. (Ctrl+D)"))
+        del_style = btn_style + "QPushButton { color: #ff4c4c; }"
+        self.btn_delete_image.setStyleSheet(del_style)
+        self.btn_delete_image.clicked.connect(self.delete_current_image)
+        
+        left_toolbar.addWidget(self.btn_box_mode)
+        left_toolbar.addWidget(self.btn_poly_mode)
+        left_toolbar.addWidget(self.btn_auto)
+        left_toolbar.addWidget(self.btn_next_class)
+        left_toolbar.addWidget(self.btn_delete_image)
+        left_toolbar.addStretch()
+        
+        left_panel = QWidget()
+        left_panel.setFixedWidth(56) # Увеличена ширина панели
+        left_panel.setStyleSheet("background-color: #18181b;")
+        left_panel.setLayout(left_toolbar)
+        
+        middle_layout.addWidget(left_panel)
+        
+        # --- SPLITTER ---
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(2)
+        splitter.setStyleSheet("QSplitter::handle { background-color: #3c3c3c; }")
+
         splitter.addWidget(self.widget)
 
         # Правая панель
@@ -371,60 +537,56 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(2)
 
         # Группа переключения режимов
-        # Группа переключения режимов
-        mode_group = QGroupBox("Режим")
+        self.mode_group = QGroupBox(tr("Режим"))
         mode_layout = QHBoxLayout()
         mode_layout.setContentsMargins(4, 8, 4, 8)
         mode_layout.setSpacing(2)
-        self.main_radio = QRadioButton("Основной")
-        self.auto_radio = QRadioButton("Авто")
+        self.main_radio = QRadioButton(tr("Основной"))
+        self.auto_radio = QRadioButton(tr("Авто"))
         self.main_radio.setChecked(self.current_mode == 'main')
         self.auto_radio.setChecked(self.current_mode == 'auto')
         self.main_radio.toggled.connect(self.on_mode_changed)
         mode_layout.addWidget(self.main_radio)
         mode_layout.addWidget(self.auto_radio)
 
-        # Кнопка переноса в основной (только для авто-режима)
-        self.transfer_btn = QPushButton("→ В основной")
+        self.transfer_btn = QPushButton(tr("→ В основной"))
         self.transfer_btn.setEnabled(False)
         self.transfer_btn.clicked.connect(self.transfer_to_main)
         self.transfer_btn.setFixedWidth(80)
         mode_layout.addWidget(self.transfer_btn)
 
-        mode_group.setLayout(mode_layout)
-        right_layout.addWidget(mode_group)
+        self.mode_group.setLayout(mode_layout)
+        right_layout.addWidget(self.mode_group)
 
         # Группа фильтрации по классу
-        filter_group = QGroupBox("Фильтр")
+        self.filter_group = QGroupBox(tr("Фильтр"))
         filter_layout = QVBoxLayout()
         filter_layout.setContentsMargins(4, 8, 4, 8)
         filter_layout.setSpacing(6)
         self.filter_combo = QComboBox()
-        self.filter_combo.addItem("Все")
+        self.filter_combo.addItem(tr("Все"))
         self.filter_combo.currentTextChanged.connect(self.on_filter_changed)
         filter_layout.addWidget(self.filter_combo)
-        filter_group.setLayout(filter_layout)
-        right_layout.addWidget(filter_group)
+        self.filter_group.setLayout(filter_layout)
+        right_layout.addWidget(self.filter_group)
 
         # Группа классов с деревом иерархии
-        classes_group = QGroupBox("Классы")
+        self.classes_group = QGroupBox(tr("Классы"))
         classes_layout = QVBoxLayout()
         classes_layout.setContentsMargins(4, 8, 4, 8)
         classes_layout.setSpacing(2)
 
-        # Сначала создаём дерево
         self.class_tree = ClassHierarchyWidget()
         self.class_tree.class_selected.connect(self.on_class_selected_from_list)
         self.class_tree.color_change_requested.connect(self.on_class_color_changed)
         self.class_tree.hierarchy_changed.connect(self.on_hierarchy_changed)
         self.class_tree.delete_class_requested.connect(self.on_class_deleted_from_tree)
-        # Кнопки управления иерархией
         hierarchy_btn_layout = QHBoxLayout()
-        self.add_group_btn = QPushButton("+ Группа")
+        self.add_group_btn = QPushButton(tr("+ Группа"))
         self.add_group_btn.clicked.connect(self.add_class_group)
-        self.expand_all_btn = QPushButton("Развернуть всё")
+        self.expand_all_btn = QPushButton(tr("Развернуть всё"))
         self.expand_all_btn.clicked.connect(self.class_tree.expandAll)
-        self.collapse_all_btn = QPushButton("Свернуть всё")
+        self.collapse_all_btn = QPushButton(tr("Свернуть всё"))
         self.collapse_all_btn.clicked.connect(self.class_tree.collapseAll)
         hierarchy_btn_layout.addWidget(self.add_group_btn)
         hierarchy_btn_layout.addWidget(self.expand_all_btn)
@@ -432,67 +594,33 @@ class MainWindow(QMainWindow):
         classes_layout.addLayout(hierarchy_btn_layout)
 
         classes_layout.addWidget(self.class_tree)
+        
+        self.btn_classes = QPushButton(tr("Редактировать список классов..."))
+        self.btn_classes.clicked.connect(self.open_type_dialog)
+        classes_layout.addWidget(self.btn_classes)
 
-        classes_group.setLayout(classes_layout)
-        right_layout.addWidget(classes_group)
+        self.classes_group.setLayout(classes_layout)
+        right_layout.addWidget(self.classes_group)
 
         # Группа информации
-        info_group = QGroupBox("Информация")
+        self.info_group = QGroupBox(tr("Информация"))
         info_layout = QVBoxLayout()
         info_layout.setContentsMargins(4, 8, 4, 8)
         info_layout.setSpacing(2)
-        self.total_label = QLabel("Всего: 0")
-        self.total_label.setStyleSheet("font-size: 11px; font-weight: bold;")
-        self.unannotated_label = QLabel("Неразмечено: 0")
-        self.unannotated_label.setStyleSheet("font-size: 11px;")
-        self.class_label = QLabel("Класс: unknown")
-        self.class_label.setStyleSheet("font-size: 11px; font-weight: bold; color: #0d7377;")
+        self.total_label = QLabel(f"{tr('Всего')}: 0")
+        self.total_label.setStyleSheet("font-size: 12px; font-weight: bold;")
+        self.unannotated_label = QLabel(f"{tr('Неразмечено')}: 0")
+        self.unannotated_label.setStyleSheet("font-size: 12px;")
+        self.class_label = QLabel(f"{tr('Класс')}: {tr('unknown')}")
+        self.class_label.setStyleSheet("font-family: 'Segoe UI', 'Inter', 'Roboto', sans-serif; font-size: 12px; font-weight: bold; color: #818cf8;")
         info_layout.addWidget(self.total_label)
         info_layout.addWidget(self.unannotated_label)
         info_layout.addWidget(self.class_label)
-        info_group.setLayout(info_layout)
-        right_layout.addWidget(info_group)
-
-        # Группа быстрых действий
-        quick_group = QGroupBox("Действия")
-        quick_layout = QVBoxLayout()
-        quick_layout.setContentsMargins(4, 8, 4, 8)
-        quick_layout.setSpacing(2)
-
-        self.btn_auto = QPushButton("Авторазметка (A)")
-        self.btn_auto.clicked.connect(self.auto_annotate)
-        quick_layout.addWidget(self.btn_auto)
-
-        self.btn_next_class = QPushButton("След. класс (T)")
-        self.btn_next_class.clicked.connect(self.next_class)
-        quick_layout.addWidget(self.btn_next_class)
-
-        self.btn_classes = QPushButton("Классы...")
-        self.btn_classes.clicked.connect(self.open_type_dialog)
-        quick_layout.addWidget(self.btn_classes)
-
-        btn_nav_layout = QHBoxLayout()
-        btn_nav_layout.setSpacing(2)
-        self.btn_prev = QPushButton("<")
-        self.btn_prev.setFixedWidth(25)
-        self.btn_prev.clicked.connect(self.prev_image)
-        self.btn_next = QPushButton(">")
-        self.btn_next.setFixedWidth(25)
-        self.btn_next.clicked.connect(self.next_image)
-        btn_nav_layout.addWidget(self.btn_prev)
-        btn_nav_layout.addWidget(self.btn_next)
-        quick_layout.addLayout(btn_nav_layout)
-
-        self.btn_delete_image = QPushButton("Удалить изобр. (Ctrl+D)")
-        self.btn_delete_image.setObjectName("danger")
-        self.btn_delete_image.clicked.connect(self.delete_current_image)
-        quick_layout.addWidget(self.btn_delete_image)
-
-        quick_group.setLayout(quick_layout)
-        right_layout.addWidget(quick_group)
+        self.info_group.setLayout(info_layout)
+        right_layout.addWidget(self.info_group)
 
         # Группа списка боксов
-        list_group = QGroupBox("Боксы")
+        self.list_group = QGroupBox(tr("Боксы"))
         list_layout = QVBoxLayout()
         list_layout.setContentsMargins(4, 8, 4, 8)
         list_layout.setSpacing(2)
@@ -501,13 +629,14 @@ class MainWindow(QMainWindow):
         self.box_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.box_list.customContextMenuRequested.connect(self.show_box_context_menu)
         list_layout.addWidget(self.box_list)
-        list_group.setLayout(list_layout)
-        right_layout.addWidget(list_group)
+        self.list_group.setLayout(list_layout)
+        right_layout.addWidget(self.list_group)
 
-        right_layout.addStretch()
         splitter.addWidget(right_panel)
-        splitter.setSizes([1000, 280])
-        layout.addWidget(splitter)
+        splitter.setSizes([1050, 230])
+        
+        middle_layout.addWidget(splitter)
+        layout.addLayout(middle_layout)
 
         self.splitter = splitter
         self.right_panel = right_panel
@@ -531,13 +660,57 @@ class MainWindow(QMainWindow):
         self.thumb_bar.image_selected.connect(self.load_image_by_name)
         layout.addWidget(self.thumb_bar)
 
+    def retranslate_ui(self):
+        """Обновляет все тексты в интерфейсе при смене языка."""
+        self.setWindowTitle(tr("VisionForge - Инструмент разметки"))
+        self.create_menus()
+        
+        # Обновляем правую панель
+        self.mode_group.setTitle(tr("Режим"))
+        self.main_radio.setText(tr("Основной"))
+        self.auto_radio.setText(tr("Авто"))
+        self.transfer_btn.setText(tr("→ В основной"))
+        
+        self.filter_group.setTitle(tr("Фильтр"))
+        # Обновляем комбобокс фильтра (нужно пересоздать список или обновить "Все")
+        self.update_filter_combo()
+        
+        self.classes_group.setTitle(tr("Классы"))
+        self.add_group_btn.setText(tr("+ Группа"))
+        self.expand_all_btn.setText(tr("Развернуть всё"))
+        self.collapse_all_btn.setText(tr("Свернуть всё"))
+        self.class_tree.setHeaderLabels([tr("Класс / Группа"), tr("Счётчик")])
+        
+        self.info_group.setTitle(tr("Информация"))
+        # Обновляем метки в info_group
+        total = len(self.filtered_images)
+        unannotated = sum(1 for f in self.filtered_images if not self.current_project.get_annotations(f))
+        self.total_label.setText(f"{tr('Всего')}: {total}")
+        self.unannotated_label.setText(f"{tr('Неразмечено')}: {unannotated}")
+        if hasattr(self.widget, 'current_class'):
+            self.class_label.setText(f"{tr('Класс')}: {self.widget.current_class}")
+        
+        self.btn_box_mode.setToolTip(tr("Бокс (B)"))
+        self.btn_poly_mode.setToolTip(tr("Полигон (P)"))
+        self.btn_auto.setToolTip(tr("Авторазметка (A)"))
+        self.btn_next_class.setToolTip(tr("След. класс (T)"))
+        self.btn_classes.setText(tr("Редактировать список классов..."))
+        self.btn_delete_image.setToolTip(tr("Удалить изобр. (Ctrl+D)"))
+        self.btn_prev.setToolTip(tr("Предыдущее изображение"))
+        self.btn_next.setToolTip(tr("Следующее изображение"))
+        
+        self.list_group.setTitle(tr("Боксы"))
+        self.update_box_list() # Обновит имена в списке боксов
+        
+        self.status_label.setText(tr("Готов к работе"))
+
     # ---------- Вспомогательные методы для панели ----------
     def show_box_context_menu(self, pos):
         item = self.box_list.itemAt(pos)
         if not item:
             return
         menu = QMenu()
-        delete_action = menu.addAction("Удалить")
+        delete_action = menu.addAction(tr("Удалить"))
         delete_action.triggered.connect(lambda: self.delete_box_from_list(item))
         menu.exec_(self.box_list.mapToGlobal(pos))
 
@@ -552,7 +725,9 @@ class MainWindow(QMainWindow):
             self.widget.update()
 
     def transfer_to_main(self):
-        """Переносит текущее изображение из авто-проекта в основной проект."""
+        """Переносит текущее изображение из авто-проекта в основной проект.
+        Если папки изображений разные — перемещает файл.
+        Аннотации добавляются в основной JSON и удаляются из авто-JSON."""
         if self.current_mode != 'auto':
             return
         if not self.filtered_images:
@@ -560,19 +735,26 @@ class MainWindow(QMainWindow):
         img_name = self.filtered_images[self.current_index]
         src_boxes = self.auto_project.get_annotations(img_name)
         if not src_boxes:
-            QMessageBox.information(self, "Перенос", "Текущее изображение не имеет аннотаций.")
+            QMessageBox.information(self, tr("Перенос"), tr("Текущее изображение не имеет аннотаций."))
             return
 
-        # Копируем изображение, если его нет в основном проекте
         src_img_path = os.path.join(self.auto_project.images_dir, img_name)
         dst_img_path = os.path.join(self.main_project.images_dir, img_name)
-        if not os.path.exists(dst_img_path):
-            os.makedirs(os.path.dirname(dst_img_path), exist_ok=True)
-            shutil.copy2(src_img_path, dst_img_path)
-            # Добавляем имя файла в список изображений основного проекта
-            if img_name not in self.main_project.images_list:
-                self.main_project.images_list.append(img_name)
-                self.main_project.images_list.sort()
+
+        # Если папки изображений разные — перемещаем файл
+        same_dir = os.path.normpath(self.auto_project.images_dir) == os.path.normpath(self.main_project.images_dir)
+        if not same_dir:
+            if not os.path.exists(dst_img_path):
+                os.makedirs(os.path.dirname(dst_img_path), exist_ok=True)
+                shutil.move(src_img_path, dst_img_path)
+            elif os.path.exists(src_img_path):
+                # Файл уже есть в основной папке, удаляем из авто
+                os.remove(src_img_path)
+
+        # Добавляем имя файла в список изображений основного проекта
+        if img_name not in self.main_project.images_list:
+            self.main_project.images_list.append(img_name)
+            self.main_project.images_list.sort()
 
         # Добавляем аннотации в основной проект
         self.main_project.annotations[img_name] = src_boxes
@@ -587,11 +769,22 @@ class MainWindow(QMainWindow):
         self.main_project.clean_class_colors()
         self.main_project.save()
 
-        QMessageBox.information(self, "Перенос", f"Изображение {img_name} перенесено в основной проект.")
+        # Удаляем аннотации из авто-проекта
+        if img_name in self.auto_project.annotations:
+            del self.auto_project.annotations[img_name]
+        if img_name in self.auto_project.image_types:
+            del self.auto_project.image_types[img_name]
+        if not same_dir and img_name in self.auto_project.images_list:
+            self.auto_project.images_list.remove(img_name)
+        self.auto_project.save()
 
-        # Переключаемся в основной режим
-        self.main_radio.setChecked(True)
-        # Вызов switch_mode произойдёт автоматически через сигнал toggled
+        QMessageBox.information(self, tr("Перенос"), f"{img_name} {tr('перенесено в основной проект.')}")
+
+        # Обновляем список и переключаемся
+        self.update_filtered_images()
+        if self.current_index >= len(self.filtered_images):
+            self.current_index = max(0, len(self.filtered_images) - 1)
+        self.load_current_image()
 
     def prepare_dataset(self):
         dialog = PrepareDatasetDialog(self, self)
@@ -640,7 +833,7 @@ class MainWindow(QMainWindow):
 
     # ---------- Управление иерархией классов ----------
     def add_class_group(self):
-        name, ok = QInputDialog.getText(self, "Новая группа", "Введите название группы:")
+        name, ok = QInputDialog.getText(self, tr("Новая группа"), tr("Введите название группы:"))
         if ok and name.strip():
             self.current_project.class_hierarchy.append({"name": name.strip(), "children": []})
             self.update_class_tree()
@@ -682,37 +875,37 @@ class MainWindow(QMainWindow):
     # ---------- Методы меню ----------
     def save_project(self):
         self.current_project.save()
-        self.update_status("Проект сохранён")
+        self.update_status(tr("Проект сохранён"))
 
     def save_project_as(self):
-        new_path, _ = QFileDialog.getSaveFileName(self, "Сохранить копию JSON как", "", "JSON files (*.json)")
+        new_path, _ = QFileDialog.getSaveFileName(self, tr("Сохранить копию JSON как"), "", tr("JSON files (*.json)"))
         if new_path:
             with open(new_path, 'w', encoding='utf-8') as f:
                 json.dump(self.current_project.annotations, f, indent=2, ensure_ascii=False)
-            self.update_status(f"Копия сохранена в {new_path}")
+            self.update_status(f"{tr('Копия сохранена в')} {new_path}")
 
     def export_yolo(self):
         from project.exporters import export_yolo
-        output_dir = QFileDialog.getExistingDirectory(self, "Выберите папку для экспорта YOLO")
+        output_dir = QFileDialog.getExistingDirectory(self, tr("Выберите папку для экспорта YOLO"))
         if output_dir:
             export_yolo(self.current_project, output_dir)
 
     def export_coco(self):
         from project.exporters import export_coco
-        output_file, _ = QFileDialog.getSaveFileName(self, "Сохранить COCO JSON", "", "JSON files (*.json)")
+        output_file, _ = QFileDialog.getSaveFileName(self, tr("Сохранить COCO JSON"), "", tr("JSON files (*.json)"))
         if output_file:
             export_coco(self.current_project, output_file)
 
     def export_voc(self):
         from project.exporters import export_voc
-        output_dir = QFileDialog.getExistingDirectory(self, "Выберите папку для экспорта Pascal VOC")
+        output_dir = QFileDialog.getExistingDirectory(self, tr("Выберите папку для экспорта Pascal VOC"))
         if output_dir:
             export_voc(self.current_project, output_dir)
 
     def batch_process(self):
         if self.detector is None:
-            reply = QMessageBox.question(self, "Модель не загружена",
-                                         "Детектор не загружен. Хотите открыть настройки и указать путь к модели?",
+            reply = QMessageBox.question(self, tr("Модель не загружена"),
+                                         tr("Детектор не загружен. Хотите открыть настройки и указать путь к модели?"),
                                          QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self.open_settings()
@@ -731,18 +924,18 @@ class MainWindow(QMainWindow):
         else:
             folder = params["source_path"]
             if not folder or not os.path.isdir(folder):
-                QMessageBox.warning(self, "Ошибка", "Укажите существующую папку с изображениями.")
+                QMessageBox.warning(self, tr("Ошибка"), tr("Укажите существующую папку с изображениями."))
                 return
             # Получаем все файлы с подходящими расширениями
             valid_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
             images = [f for f in os.listdir(folder) if f.lower().endswith(valid_exts)]
             source_dir = folder
             if not images:
-                QMessageBox.information(self, "Пакетная разметка", "В указанной папке нет изображений.")
+                QMessageBox.information(self, tr("Пакетная разметка"), tr("В указанной папке нет изображений."))
                 return
 
         if not images:
-            QMessageBox.information(self, "Пакетная разметка", "Нет изображений для обработки.")
+            QMessageBox.information(self, tr("Пакетная разметка"), tr("Нет изображений для обработки."))
             return
 
         progress_dlg = ProgressDialog(len(images), self)
@@ -767,44 +960,36 @@ class MainWindow(QMainWindow):
             self.auto_project.save()
             self.auto_project.load()
             self.update_status(message)
-            QMessageBox.information(self, "Пакетная разметка", message)
+            QMessageBox.information(self, tr("Пакетная разметка"), message)
         else:
-            QMessageBox.critical(self, "Ошибка", message)
+            QMessageBox.critical(self, tr("Ошибка"), message)
 
     def show_help(self):
-        help_text = """
-        <h2>Горячие клавиши</h2>
-        <ul>
-            <li><b>N</b> - начать рисование бокса</li>
-            <li><b>S</b> - сохранить изменения</li>
-            <li><b>E</b> - изменить класс выбранного бокса на текущий</li>
-            <li><b>T</b> - переключить текущий класс на следующий</li>
-            <li><b>D</b> - удалить выбранный бокс</li>
-            <li><b>Ctrl+D</b> - удалить текущее изображение</li>
-            <li><b>F</b> - предыдущее изображение</li>
-            <li><b>G</b> - следующее изображение</li>
-            <li><b>Ctrl+Z</b> - отменить последнее действие</li>
-            <li><b>A</b> - авторазметка</li>
-            <li><b>F11</b> - полноэкранный режим (скрывает правую панель при включённой настройке)</li>
-        </ul>
-        """
+        help_text = tr("Горячие клавиши") + ":\n\n" + \
+                    "N - " + tr("начать рисование бокса") + "\n" + \
+                    "S - " + tr("сохранить изменения") + "\n" + \
+                    "E - " + tr("изменить класс выбранного бокса на текущий") + "\n" + \
+                    "T - " + tr("переключить текущий класс на следующий") + "\n" + \
+                    "D - " + tr("удалить выбранный бокс") + "\n" + \
+                    "Ctrl+D - " + tr("удалить текущее изображение") + "\n" + \
+                    "F - " + tr("предыдущее изображение") + "\n" + \
+                    "G - " + tr("следующее изображение") + "\n" + \
+                    "Ctrl+Z - " + tr("отменить последнее действие") + "\n" + \
+                    "A - " + tr("авторазметка") + "\n" + \
+                    "F11 - " + tr("полноэкранный режим (скрывает правую панель при включённой настройке)")
+
         msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("Справка")
-        msg_box.setTextFormat(Qt.RichText)
+        msg_box.setWindowTitle(tr("Справка"))
         msg_box.setText(help_text)
         msg_box.setStyleSheet(get_current_theme_style())
         msg_box.exec_()
 
     def show_about(self):
-        about_text = """
-        <h2>VisionForge</h2>
-        <p>Версия {}</p>
-        <p>Инструмент для разметки изображений, детекции в реальном времени и обучения моделей YOLO.</p>
-        <p>Разработано с использованием PyQt5, OpenCV, Ultralytics YOLO.</p>
-        """.format(VERSION)
+        about_text = "VisionForge\n\n" + \
+                     tr("Версия") + " {}\n\n".format(VERSION) + \
+                     tr("Инструмент для разметки изображений, детекции в реальном времени и обучения моделей YOLO.\nРазработано с использованием PyQt5, OpenCV, Ultralytics YOLO.")
         msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("О программе")
-        msg_box.setTextFormat(Qt.RichText)
+        msg_box.setWindowTitle(tr("О программе"))
         msg_box.setText(about_text)
         msg_box.setStyleSheet(get_current_theme_style())
         msg_box.exec_()
@@ -816,20 +1001,20 @@ class MainWindow(QMainWindow):
         if os.path.exists(config.DETECTOR_PATH):
             try:
                 self.detector = YOLO(config.DETECTOR_PATH)
-                print("Детектор загружен")
+                print(tr("Детектор загружен"))
             except Exception as e:
-                print(f"Ошибка загрузки детектора: {e}")
+                print(f"{tr('Ошибка загрузки детектора')}: {e}")
         else:
-            print(f"Детектор не найден: {config.DETECTOR_PATH}")
+            print(f"{tr('Детектор не найден')}: {config.DETECTOR_PATH}")
 
         if os.path.exists(config.CLASSIFIER_PATH):
             try:
                 self.classifier = YOLO(config.CLASSIFIER_PATH)
-                print("Классификатор загружен")
+                print(tr("Классификатор загружен"))
             except Exception as e:
-                print(f"Ошибка загрузки классификатора: {e}")
+                print(f"{tr('Ошибка загрузки классификатора')}: {e}")
         else:
-            print(f"Классификатор не найден: {config.CLASSIFIER_PATH}")
+            print(f"{tr('Классификатор не найден')}: {config.CLASSIFIER_PATH}")
 
         if hasattr(self, 'widget') and self.widget is not None:
             self.widget.set_models(self.detector, self.classifier)
@@ -839,7 +1024,7 @@ class MainWindow(QMainWindow):
         self.filter_combo.blockSignals(True)
         current_text = self.filter_combo.currentText()
         self.filter_combo.clear()
-        self.filter_combo.addItem("Все")
+        self.filter_combo.addItem(tr("Все"))
         self.filter_combo.addItems(self.current_project.classes)
         idx = self.filter_combo.findText(current_text)
         if idx >= 0:
@@ -859,16 +1044,26 @@ class MainWindow(QMainWindow):
         self.thumb_bar.load_visible_thumbnails()
 
     def update_filtered_images(self):
-        if self.filter_type == "Все":
+        if self.filter_type == tr("Все"):
             self.filtered_images = self.current_project.images_list.copy()
         else:
             self.filtered_images = [
                 img for img in self.current_project.images_list
                 if self.filter_type in self.current_project.image_types.get(img, set())
             ]
-        self.total_label.setText(f"Всего: {len(self.filtered_images)}")
+        self.total_label.setText(f"{tr('Всего')}: {len(self.filtered_images)}")
         unannotated = sum(1 for img in self.filtered_images if img not in self.current_project.annotations)
-        self.unannotated_label.setText(f"Неразмечено: {unannotated}")
+        annotated = len(self.filtered_images) - unannotated
+        self.unannotated_label.setText(f"{tr('Неразмечено')}: {unannotated}")
+        
+        self.progress_bar.setMaximum(len(self.filtered_images))
+        self.progress_bar.setValue(annotated)
+        
+        if self.filtered_images:
+            current_display_idx = self.current_index + 1 if self.current_index >= 0 else 0
+            self.progress_bar.setFormat(f"{current_display_idx} / {len(self.filtered_images)}")
+        else:
+            self.progress_bar.setFormat("0 / 0")
 
     @property
     def image_types(self):
@@ -880,6 +1075,11 @@ class MainWindow(QMainWindow):
     def load_current_image(self):
         if not self.filtered_images or self.current_index < 0 or self.current_index >= len(self.filtered_images):
             return
+            
+        if len(self.filtered_images) > 0:
+            current_display_idx = self.current_index + 1
+            self.progress_bar.setFormat(f"{current_display_idx} / {len(self.filtered_images)}")
+            
         img_name = self.filtered_images[self.current_index]
         img_path = os.path.join(self.current_project.images_dir, img_name)
         if not os.path.exists(img_path):
@@ -892,10 +1092,15 @@ class MainWindow(QMainWindow):
         boxes = self.current_project.get_annotations(img_name)
         self.widget.set_boxes(boxes)
         self.widget.class_colors = self.current_project.class_colors
-        self.widget.set_classes(self.current_project.classes,
-                                self.current_project.classes[0] if self.current_project.classes else "unknown")
+        # Сохраняем текущий выбранный класс (если он есть в списке классов проекта)
+        keep_class = self.widget.current_class
+        if keep_class not in self.current_project.classes:
+            keep_class = self.current_project.classes[0] if self.current_project.classes else tr("unknown")
+        self.widget.set_classes(self.current_project.classes, keep_class)
         self.update_box_list()
         self.update_class_tree()
+        # Подсвечиваем текущее изображение в карусели
+        self.thumb_bar.set_current(img_name)
 
     def load_image_by_name(self, filename):
         try:
@@ -930,6 +1135,7 @@ class MainWindow(QMainWindow):
             self.update_box_list()
             self.update_class_tree()
             self.update_filter_combo()
+            self.update_filtered_images()
 
     def update_box_list(self):
         self.box_list.clear()
@@ -971,18 +1177,22 @@ class MainWindow(QMainWindow):
         dialog = TypeDialog(self.current_project, self.widget.current_class, self)
         if dialog.exec_() == QDialog.Accepted:
             self.update_class_tree()
-            self.widget.set_classes(self.current_project.classes, self.widget.current_class)
-            self.class_label.setText(f"Класс: {self.widget.current_class}")
+            # Если пользователь выбрал класс в диалоге — применяем его
+            selected_class = dialog.result_class or self.widget.current_class
+            if selected_class not in self.current_project.classes:
+                selected_class = self.current_project.classes[0] if self.current_project.classes else tr("unknown")
+            self.widget.set_classes(self.current_project.classes, selected_class)
+            self.class_label.setText(f"{tr('Класс')}: {selected_class}")
             self.update_filter_combo()
             self.current_project.save()
 
     def on_class_selected_from_list(self, class_name):
         self.widget.current_class = class_name
-        self.class_label.setText(f"Класс: {class_name}")
+        self.class_label.setText(f"{tr('Класс')}: {class_name}")
 
     def on_class_color_changed(self, class_name):
         color = QColorDialog.getColor(QColor(self.current_project.class_colors.get(class_name, "#ffffff")),
-                                      self, f"Выберите цвет для класса {class_name}")
+                                      self, f"{tr('Выберите цвет для класса')} {class_name}")
         if color.isValid():
             self.current_project.class_colors[class_name] = color.name()
             self.widget.class_colors = self.current_project.class_colors
@@ -1000,15 +1210,15 @@ class MainWindow(QMainWindow):
             idx = 0
         idx = (idx + 1) % len(classes)
         self.widget.current_class = classes[idx]
-        self.class_label.setText(f"Класс: {self.widget.current_class}")
+        self.class_label.setText(f"{tr('Класс')}: {self.widget.current_class}")
 
     def delete_class(self, class_name):
         msg = QMessageBox(self)
-        msg.setWindowTitle(f"Удалить класс '{class_name}'?")
-        msg.setText(f"Что делать с объектами класса '{class_name}'?")
-        delete_btn = msg.addButton("Удалить все", QMessageBox.ActionRole)
-        reassign_btn = msg.addButton("Переназначить", QMessageBox.ActionRole)
-        cancel_btn = msg.addButton("Отмена", QMessageBox.RejectRole)
+        msg.setWindowTitle(f"{tr('Удалить класс')} '{class_name}'?")
+        msg.setText(f"{tr('Что делать с объектами класса')} '{class_name}'?")
+        delete_btn = msg.addButton(tr("Удалить все"), QMessageBox.ActionRole)
+        reassign_btn = msg.addButton(tr("Переназначить"), QMessageBox.ActionRole)
+        cancel_btn = msg.addButton(tr("Отмена"), QMessageBox.RejectRole)
         msg.exec_()
 
         if msg.clickedButton() == delete_btn:
@@ -1021,11 +1231,11 @@ class MainWindow(QMainWindow):
                     del self.current_project.annotations[img]
             # Удаляем класс из иерархии
             self._remove_class_from_hierarchy(self.current_project.class_hierarchy, class_name)
-            self.update_status(f"Класс '{class_name}' и все его боксы удалены.")
+            self.update_status(f"{tr('Класс')} '{class_name}' {tr('и все его боксы удалены.')}")
 
         elif msg.clickedButton() == reassign_btn:
-            new_class, ok = QInputDialog.getItem(self, "Переназначить класс",
-                                                 "Выберите новый класс:",
+            new_class, ok = QInputDialog.getItem(self, tr("Переназначить класс"),
+                                                 tr("Выберите новый класс:"),
                                                  self.current_project.classes, 0, False)
             if ok and new_class and new_class != class_name:
                 for img in self.current_project.annotations:
@@ -1034,7 +1244,7 @@ class MainWindow(QMainWindow):
                             box["class"] = new_class
                 # Удаляем старый класс из иерархии
                 self._remove_class_from_hierarchy(self.current_project.class_hierarchy, class_name)
-                self.update_status(f"Класс '{class_name}' переназначен на '{new_class}'.")
+                self.update_status(f"{tr('Класс')} '{class_name}' {tr('переназначен на')} '{new_class}'.")
             else:
                 return False
         else:
@@ -1074,8 +1284,8 @@ class MainWindow(QMainWindow):
     # ---------- Авторазметка ----------
     def auto_annotate(self):
         if self.detector is None:
-            reply = QMessageBox.question(self, "Модель не загружена",
-                                         "Детектор не загружен. Хотите открыть настройки и указать путь к модели?",
+            reply = QMessageBox.question(self, tr("Модель не загружена"),
+                                         tr("Детектор не загружен. Хотите открыть настройки и указать путь к модели?"),
                                          QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self.open_settings()
@@ -1087,14 +1297,14 @@ class MainWindow(QMainWindow):
         if not self.filtered_images:
             return
         img_name = self.filtered_images[self.current_index]
-        reply = QMessageBox.question(self, "Удаление", f"Удалить {img_name}?",
+        reply = QMessageBox.question(self, tr("Удалить"), f"{tr('Удалить')} {img_name}?",
                                      QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             file_path = os.path.join(self.current_project.images_dir, img_name)
             try:
                 os.remove(file_path)
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", str(e))
+                QMessageBox.critical(self, tr("Ошибка"), str(e))
                 return
             if img_name in self.current_project.annotations:
                 del self.current_project.annotations[img_name]
@@ -1117,15 +1327,15 @@ class MainWindow(QMainWindow):
             self.update_filter_combo()
 
     def load_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Выберите папку с изображениями")
+        folder = QFileDialog.getExistingDirectory(self, tr("Выберите папку с изображениями"))
         if not folder:
             return
         ann_file = os.path.join(folder, "annotations.json")
         project = Project(folder, ann_file)
         ok, msg = self.safe_load_project(project)
         if not ok:
-            reply = QMessageBox.critical(self, "Ошибка загрузки",
-                                         f"Не удалось загрузить проект из папки:\n{msg}\n\nСоздать новый проект?",
+            reply = QMessageBox.critical(self, tr("Ошибка загрузки"),
+                                         f"{tr('Не удалось загрузить проект из папки')}:\n{msg}\n\n{tr('Создать новый проект?')}",
                                          QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self._reset_project(project)
@@ -1152,12 +1362,17 @@ class MainWindow(QMainWindow):
             self.current_project = self.main_project
         ok, msg = self.safe_load_project(self.current_project)
         if not ok:
-            QMessageBox.warning(self, "Предупреждение",
-                                f"Не удалось загрузить проект в режиме {self.current_mode}:\n{msg}\nБудет создан новый проект.")
+            QMessageBox.warning(self, tr("Предупреждение"),
+                                f"{tr('Не удалось загрузить проект в режиме')} {self.current_mode}:\n{msg}\n{tr('Будет создан новый проект.')}")
             self._reset_project(self.current_project)
         self.after_project_load()
+        # Блокируем сигналы чтобы избежать бесконечного цикла
+        self.main_radio.blockSignals(True)
+        self.auto_radio.blockSignals(True)
         self.main_radio.setChecked(self.current_mode == 'main')
         self.auto_radio.setChecked(self.current_mode == 'auto')
+        self.main_radio.blockSignals(False)
+        self.auto_radio.blockSignals(False)
 
     # ---------- Настройки ----------
     def open_settings(self):
@@ -1171,12 +1386,18 @@ class MainWindow(QMainWindow):
             config.CLS_CONF = new_config["cls_conf"]
             config.SCREENSHOTS_DIR = new_config["main_images_dir"]
             config.MAIN_JSON = new_config["main_json"]
+            config.AUTO_IMAGES_DIR = new_config.get("auto_images_dir", "") or config.SCREENSHOTS_DIR
             config.AUTO_JSON = new_config["auto_json"]
             config.THUMBNAIL_CACHE = new_config["thumbnail_cache"]
             config.THUMBNAIL_QUALITY = new_config["thumbnail_quality"]
             config.ASYNC_IMAGE_LOADING = new_config["async_image_loading"]
             config.AUTO_HIDE_PANEL = new_config["auto_hide_panel"]
             config.THEME = new_config["theme"]
+            config.LANGUAGE = new_config.get("language", "ru")
+
+            # Применяем новый язык
+            from core.i18n import load_language
+            load_language(config.LANGUAGE)
 
             # Применяем новую тему к главному окну
             self.setStyleSheet(get_current_theme_style())
@@ -1185,7 +1406,7 @@ class MainWindow(QMainWindow):
 
             self.load_models_from_config()
             self.main_project = Project(config.SCREENSHOTS_DIR, config.MAIN_JSON)
-            self.auto_project = Project(os.path.dirname(config.AUTO_JSON), config.AUTO_JSON)
+            self.auto_project = Project(config.AUTO_IMAGES_DIR, config.AUTO_JSON)
             self.current_project.save()
             if self.current_mode == 'main':
                 self.current_project = self.main_project
@@ -1284,7 +1505,12 @@ class MainWindow(QMainWindow):
 
         text = event.text().lower()
         if text == 'n':
-            self.widget.start_drawing()
+            # N — принудительно начать рисовать в текущем режиме (бокс или полигон)
+            self.force_start_drawing()
+        elif text == 'b':
+            self.set_box_mode()
+        elif text == 'p':
+            self.set_poly_mode()
         elif text == 's':
             self.on_boxes_changed()
         elif text == 'e':
@@ -1323,8 +1549,8 @@ class MainWindow(QMainWindow):
     # ---------- Детекция ----------
     def start_overlay(self):
         if self.detector is None:
-            reply = QMessageBox.question(self, "Модель не загружена",
-                                         "Детектор не загружен. Хотите открыть настройки и указать путь к модели?",
+            reply = QMessageBox.question(self, tr("Модель не загружена"),
+                                         tr("Детектор не загружен. Хотите открыть настройки и указать путь к модели?"),
                                          QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self.open_settings()
@@ -1335,11 +1561,11 @@ class MainWindow(QMainWindow):
 
     # ---------- Новый проект ----------
     def new_project(self):
-        folder = QFileDialog.getExistingDirectory(self, "Выберите папку с изображениями")
+        folder = QFileDialog.getExistingDirectory(self, tr("Выберите папку с изображениями"))
         if not folder:
             return
         default_json = os.path.join(folder, "annotations.json")
-        json_path, _ = QFileDialog.getSaveFileName(self, "Сохранить JSON как", default_json, "JSON files (*.json)")
+        json_path, _ = QFileDialog.getSaveFileName(self, tr("Сохранить JSON как"), default_json, "JSON files (*.json)")
         if not json_path:
             return
 
@@ -1350,8 +1576,8 @@ class MainWindow(QMainWindow):
             if ok:
                 self.current_project = project
             else:
-                reply = QMessageBox.question(self, "Файл существует",
-                                             f"Файл аннотаций уже существует, но повреждён:\n{msg}\n\nПерезаписать его новым проектом?",
+                reply = QMessageBox.question(self, tr("Файл существует"),
+                                             f"{tr('Файл аннотаций уже существует, но повреждён')}:\n{msg}\n\n{tr('Перезаписать его новым проектом?')}",
                                              QMessageBox.Yes | QMessageBox.No)
                 if reply == QMessageBox.Yes:
                     self._reset_project(project)
@@ -1364,18 +1590,25 @@ class MainWindow(QMainWindow):
 
         self.after_project_load()
 
-    def open_project(self):
-        json_path, _ = QFileDialog.getOpenFileName(self, "Выберите файл аннотаций JSON", "", "JSON files (*.json)")
-        if not json_path:
-            return
+    def show_project_hub(self):
+        from ui.project_hub_dialog import ProjectHubDialog
+        dlg = ProjectHubDialog(self)
+        if dlg.exec_() == QDialog.Accepted:
+            if dlg.action_type == 'new':
+                self.new_project()
+            elif dlg.action_type == 'browse':
+                self.load_project_from_json(dlg.selected_json_path)
+            elif dlg.action_type == 'open_recent':
+                self.load_project_from_json(dlg.selected_json_path)
 
+    def load_project_from_json(self, json_path):
         folder = os.path.dirname(json_path)
         project = Project(folder, json_path)
 
         ok, msg = self.safe_load_project(project)
         if not ok:
-            reply = QMessageBox.critical(self, "Ошибка загрузки",
-                                         f"Не удалось загрузить проект:\n{msg}\n\nСоздать новый проект в этой папке?",
+            reply = QMessageBox.critical(self, tr("Ошибка загрузки"),
+                                         f"{tr('Не удалось загрузить проект')}:\n{msg}\n\n{tr('Создать новый проект в этой папке?')}",
                                          QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self._reset_project(project)
@@ -1384,6 +1617,9 @@ class MainWindow(QMainWindow):
 
         self.current_project = project
         self.after_project_load()
+        
+    def open_project(self):
+        self.show_project_hub()
 
     # ---------- Импорт аннотаций ----------
     def import_annotations(self):
@@ -1421,11 +1657,11 @@ class MainWindow(QMainWindow):
                 self.thumb_bar.load_visible_thumbnails()
             else:
                 # Создать новый проект
-                folder = QFileDialog.getExistingDirectory(self, "Выберите папку для нового проекта (с изображениями)")
+                folder = QFileDialog.getExistingDirectory(self, tr("Выберите папку для нового проекта (с изображениями)"))
                 if not folder:
                     return
                 default_json = os.path.join(folder, "annotations.json")
-                json_path, _ = QFileDialog.getSaveFileName(self, "Сохранить JSON как", default_json,
+                json_path, _ = QFileDialog.getSaveFileName(self, tr("Сохранить JSON как"), default_json,
                                                            "JSON files (*.json)")
                 if not json_path:
                     return
@@ -1441,5 +1677,34 @@ class MainWindow(QMainWindow):
                 self.after_project_load()
 
     def closeEvent(self, event):
-        self.current_project.save()
+        if self.filtered_images and 0 <= self.current_index < len(self.filtered_images):
+            self.current_project.last_image = self.filtered_images[self.current_index]
+        if hasattr(self, 'current_project'):
+            self.current_project.save()
         event.accept()
+
+    def set_box_mode(self):
+        self.widget.draw_mode = 'box'
+        self.btn_box_mode.setChecked(True)
+        self.btn_poly_mode.setChecked(False)
+        # Принудительно обновляем визуальное состояние кнопок
+        self.btn_box_mode.style().polish(self.btn_box_mode)
+        self.btn_poly_mode.style().polish(self.btn_poly_mode)
+        self.status_label.setText(tr("Режим: Прямоугольник"))
+
+    def set_poly_mode(self):
+        self.widget.draw_mode = 'polygon'
+        self.btn_box_mode.setChecked(False)
+        self.btn_poly_mode.setChecked(True)
+        # Принудительно обновляем визуальное состояние кнопок
+        self.btn_box_mode.style().polish(self.btn_box_mode)
+        self.btn_poly_mode.style().polish(self.btn_poly_mode)
+        self.status_label.setText(tr("Режим: Полигон"))
+
+    def force_start_drawing(self):
+        """Принудительно начинает рисование нового объекта в текущем режиме,
+        даже если курсор находится внутри другого бокса/полигона."""
+        if self.widget.draw_mode == 'polygon':
+            self.widget.start_polygon_drawing()
+        else:
+            self.widget.start_drawing()

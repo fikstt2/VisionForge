@@ -19,6 +19,7 @@ import ctypes
 
 import config
 from core.utils import draw_text_cv2
+from core.i18n import tr
 
 # Глобальные настройки (будут изменяться через клавиши и диалог)
 CAPTURE_SCALE = 0.8
@@ -118,7 +119,7 @@ class DetectorThread(QThread):
                         track_id = int(box.id[0]) if box.id is not None else None
 
                         # Убрана проверка на show_destroyed
-                        label = f"объект {conf:.2f}"
+                        label = f"{tr('объект')} {conf:.2f}"
                         if SHOW_TRACKS and track_id is not None:
                             label = f"{label} #{track_id}"
 
@@ -199,12 +200,12 @@ class OverlaySettingsDialog(QDialog):
     def __init__(self, overlay_window, parent=None):
         super().__init__(parent, Qt.WindowStaysOnTopHint)
         self.overlay = overlay_window
-        self.setWindowTitle("Настройки оверлея")
+        self.setWindowTitle(tr("Настройки оверлея"))
         self.setFixedSize(300, 280)
         layout = QVBoxLayout(self)
 
         # Capture scale
-        layout.addWidget(QLabel("Масштаб захвата:"))
+        layout.addWidget(QLabel(tr("Масштаб захвата:")))
         self.scale_slider = QSlider(Qt.Horizontal)
         self.scale_slider.setRange(10, 100)
         self.scale_slider.setValue(int(overlay_window.capture_thread.scale * 100))
@@ -214,7 +215,7 @@ class OverlaySettingsDialog(QDialog):
         layout.addWidget(self.scale_label)
 
         # Image size
-        layout.addWidget(QLabel("Размер изображения для детекции:"))
+        layout.addWidget(QLabel(tr("Размер изображения для детекции:")))
         self.imgsz_spin = QSpinBox()
         self.imgsz_spin.setRange(320, 1280)
         self.imgsz_spin.setValue(overlay_window.detector_thread.imgsz)
@@ -222,7 +223,7 @@ class OverlaySettingsDialog(QDialog):
         layout.addWidget(self.imgsz_spin)
 
         # Frame skip
-        layout.addWidget(QLabel("Пропуск кадров:"))
+        layout.addWidget(QLabel(tr("Пропуск кадров:")))
         self.skip_spin = QSpinBox()
         self.skip_spin.setRange(1, 10)
         self.skip_spin.setValue(overlay_window.detector_thread.frame_skip)
@@ -230,18 +231,18 @@ class OverlaySettingsDialog(QDialog):
         layout.addWidget(self.skip_spin)
 
         # Show tracks
-        self.tracks_check = QCheckBox("Показывать треки")
+        self.tracks_check = QCheckBox(tr("Показывать треки"))
         self.tracks_check.setChecked(SHOW_TRACKS)
         self.tracks_check.toggled.connect(self.on_tracks_toggled)
         layout.addWidget(self.tracks_check)
 
         # Кнопка закрытия оверлея (альтернатива горячей клавише)
-        btn_close_overlay = QPushButton("Закрыть оверлей")
+        btn_close_overlay = QPushButton(tr("Закрыть оверлей"))
         btn_close_overlay.clicked.connect(self.overlay.close)
         layout.addWidget(btn_close_overlay)
 
         # Close settings button
-        btn_close = QPushButton("Закрыть настройки")
+        btn_close = QPushButton(tr("Закрыть настройки"))
         btn_close.clicked.connect(self.close)
         layout.addWidget(btn_close)
 
@@ -446,7 +447,8 @@ class OverlayWindow(QMainWindow):
             boxes_list = []
             for (x1, y1, x2, y2, label, color) in boxes:
                 parts = label.split()
-                tank_type = parts[0] if parts[0] != "объект" else "объект"
+                obj_str = tr("объект")
+                tank_type = parts[0] if parts[0] != obj_str else obj_str
                 boxes_list.append({
                     "bbox": [x1, y1, x2, y2],
                     "class": tank_type

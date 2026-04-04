@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (QTreeWidget, QTreeWidgetItem, QMenu, QInputDialog,
                              QMessageBox, QColorDialog, QAbstractItemView)
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
+from core.i18n import tr
 
 class ClassHierarchyWidget(QTreeWidget):
     """Дерево для отображения и редактирования иерархии классов."""
@@ -13,7 +14,7 @@ class ClassHierarchyWidget(QTreeWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setHeaderLabels(["Класс / Группа", "Счётчик"])
+        self.setHeaderLabels([tr("Класс / Группа"), tr("Счётчик")])
         self.setColumnWidth(0, 200)
         self.setColumnWidth(1, 50)
         self.setIndentation(20)
@@ -39,18 +40,18 @@ class ClassHierarchyWidget(QTreeWidget):
         is_class = item.data(0, Qt.UserRole) == "class"
 
         if is_group:
-            add_class_action = menu.addAction("Добавить подкласс")
+            add_class_action = menu.addAction(tr("Добавить подкласс"))
             add_class_action.triggered.connect(lambda: self.add_subclass(item))
-            rename_action = menu.addAction("Переименовать группу")
+            rename_action = menu.addAction(tr("Переименовать группу"))
             rename_action.triggered.connect(lambda: self.rename_group(item))
-            delete_action = menu.addAction("Удалить группу")
+            delete_action = menu.addAction(tr("Удалить группу"))
             delete_action.triggered.connect(lambda: self.delete_group(item))
         elif is_class:
-            change_color_action = menu.addAction("Изменить цвет")
+            change_color_action = menu.addAction(tr("Изменить цвет"))
             change_color_action.triggered.connect(lambda: self.change_class_color(item))
-            rename_action = menu.addAction("Переименовать класс")
+            rename_action = menu.addAction(tr("Переименовать класс"))
             rename_action.triggered.connect(lambda: self.rename_class(item))
-            delete_action = menu.addAction("Удалить класс")
+            delete_action = menu.addAction(tr("Удалить класс"))
             # Вместо удаления из дерева испускаем сигнал
             delete_action.triggered.connect(lambda: self.delete_class_requested.emit(item.text(0)))
 
@@ -143,28 +144,28 @@ class ClassHierarchyWidget(QTreeWidget):
 
     # ----- Методы редактирования через контекстное меню (с сигналами) -----
     def add_subclass(self, group_item):
-        class_name, ok = QInputDialog.getText(self, "Новый подкласс", "Введите имя класса:")
+        class_name, ok = QInputDialog.getText(self, tr("Новый подкласс"), tr("Введите имя класса:"))
         if ok and class_name.strip():
             self._add_class_item(group_item, class_name.strip())
             self.hierarchy_changed.emit()
 
     def rename_group(self, group_item):
-        new_name, ok = QInputDialog.getText(self, "Переименовать группу",
-                                            "Новое имя:", text=group_item.text(0))
+        new_name, ok = QInputDialog.getText(self, tr("Переименовать группу"),
+                                            tr("Новое имя:"), text=group_item.text(0))
         if ok and new_name.strip():
             group_item.setText(0, new_name.strip())
             self.hierarchy_changed.emit()
 
     def rename_class(self, class_item):
-        new_name, ok = QInputDialog.getText(self, "Переименовать класс",
-                                            "Новое имя:", text=class_item.text(0))
+        new_name, ok = QInputDialog.getText(self, tr("Переименовать класс"),
+                                            tr("Новое имя:"), text=class_item.text(0))
         if ok and new_name.strip():
             class_item.setText(0, new_name.strip())
             self.hierarchy_changed.emit()
 
     def delete_group(self, group_item):
-        reply = QMessageBox.question(self, "Удаление группы",
-                                     f"Удалить группу '{group_item.text(0)}' и все её содержимое?",
+        reply = QMessageBox.question(self, tr("Удаление группы"),
+                                     f"{tr('Удалить группу')} '{group_item.text(0)}' {tr('и все её содержимое?')}",
                                      QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             parent = group_item.parent() or self.invisibleRootItem()

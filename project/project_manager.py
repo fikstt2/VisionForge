@@ -11,6 +11,7 @@ class Project:
         self.classes = []
         self.class_colors = {}      # class -> QColor name (str)
         self.class_hierarchy = []   # иерархия классов (список, где элементы могут быть строками или словарями с ключами name/children)
+        self.last_image = None      # Последнее открытое изображение
 
     def _normalize_boxes(self, boxes):
         """Приводит список боксов к единому формату с ключом 'class'."""
@@ -80,11 +81,13 @@ class Project:
                 self.annotations = data["annotations"]
                 self.class_colors = data.get("class_colors", {})
                 self.class_hierarchy = data.get("class_hierarchy", [])
+                self.last_image = data.get("last_image")
             else:
                 # старая структура (прямой словарь)
                 self.annotations = data
                 self.class_colors = {}
                 self.class_hierarchy = []
+                self.last_image = None
         else:
             self.annotations = {}
             self.class_colors = {}
@@ -155,7 +158,8 @@ class Project:
         data = {
             "annotations": self.annotations,
             "class_colors": self.class_colors,
-            "class_hierarchy": self.class_hierarchy
+            "class_hierarchy": self.class_hierarchy,
+            "last_image": self.last_image
         }
         with open(self.annotations_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)

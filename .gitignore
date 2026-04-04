@@ -46,5 +46,8 @@ models/
 /ui/annotations/
 /ui/data/
 /ui/runs/
+/tests/
+run_tests.py
+
 
 

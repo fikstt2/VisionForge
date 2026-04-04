@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 plt.style.use('dark_background')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from core.i18n import tr
 
 project_root = os.path.dirname(os.path.dirname(__file__))
 if project_root not in sys.path:
@@ -52,6 +53,11 @@ MODEL_FAMILIES = {
         'YOLOv10-cls': ['n', 'm', 'l', 'x'],
         'YOLOv11-cls': ['n', 's', 'm', 'l', 'x'],
         'YOLOv26-cls': ['n', 's', 'm', 'l', 'x'],
+        'Custom': ['custom']
+    },
+    'segment': {
+        'YOLOv8-seg': ['n', 's', 'm', 'l', 'x'],
+        'YOLOv11-seg': ['n', 's', 'm', 'l', 'x'],
         'Custom': ['custom']
     }
 }
@@ -126,9 +132,9 @@ class TrainWorker(QThread):
             sys.stdout = redirector
             sys.stderr = redirector
 
-            self.log_signal.emit(f"Загрузка модели {self.model_name}...")
+            self.log_signal.emit(f"{tr('Загрузка модели')} {self.model_name}...")
             model = YOLO(self.model_name)
-            self.log_signal.emit("Модель загружена. Начинаем обучение...")
+            self.log_signal.emit(tr("Модель загружена. Начинаем обучение..."))
 
             model.add_callback('on_train_epoch_end', self.on_epoch_end)
             model.add_callback('on_train_end', self.on_train_end)
@@ -139,7 +145,7 @@ class TrainWorker(QThread):
                 model.train(data=self.data_yaml, **self.params, verbose=True)
             self.finished_signal.emit(True)
         except Exception as e:
-            self.log_signal.emit(f"Ошибка: {str(e)}")
+            self.log_signal.emit(f"{tr('Ошибка')}: {str(e)}")
             self.finished_signal.emit(False)
         finally:
             sys.stdout = old_stdout
@@ -160,7 +166,7 @@ class TrainWorker(QThread):
         self.epoch_signal.emit(epoch, metrics)
 
     def on_train_end(self, trainer):
-        self.log_signal.emit("Обучение завершено.")
+        self.log_signal.emit(tr("Обучение завершено."))
 
     def stop(self):
         self._is_running = False
@@ -203,51 +209,56 @@ class TrainingWidget(QWidget):
 
         # Верхняя панель с кнопкой возврата
         top_layout = QHBoxLayout()
-        self.back_btn = QPushButton("← Вернуться к разметке")
+        self.back_btn = QPushButton(tr("← Вернуться к разметке"))
         self.back_btn.clicked.connect(self.switch_to_annotation)
         top_layout.addWidget(self.back_btn)
         top_layout.addStretch()
         main_layout.addLayout(top_layout)
 
         tabs = QTabWidget()
+        tabs.tabBar().setExpanding(False)
         main_layout.addWidget(tabs)
 
         # --- Вкладка "Управление" ---
         control_tab = QWidget()
         control_layout = QVBoxLayout(control_tab)
-        tabs.addTab(control_tab, "Управление")
+        tabs.addTab(control_tab, tr("Управление"))
 
-        task_group = QGroupBox("Тип задачи")
+        task_group = QGroupBox(tr("Тип задачи"))
         task_layout = QHBoxLayout()
-        self.task_detect = QRadioButton("Детекция")
-        self.task_classify = QRadioButton("Классификация")
+        self.task_detect = QRadioButton(tr("Детекция"))
+        self.task_classify = QRadioButton(tr("Классификация"))
+        self.task_segment = QRadioButton(tr("Сегментация"))
         self.task_detect.setChecked(True)
         self.task_detect.toggled.connect(self.on_task_changed)
         self.task_detect.toggled.connect(self.update_vram_estimate)
         self.task_classify.toggled.connect(self.update_vram_estimate)
+        self.task_segment.toggled.connect(self.on_task_changed)
+        self.task_segment.toggled.connect(self.update_vram_estimate)
         task_layout.addWidget(self.task_detect)
         task_layout.addWidget(self.task_classify)
+        task_layout.addWidget(self.task_segment)
         task_layout.addStretch()
         task_group.setLayout(task_layout)
         control_layout.addWidget(task_group)
 
-        model_group = QGroupBox("Выбор модели")
+        model_group = QGroupBox(tr("Выбор модели"))
         model_layout = QFormLayout()
 
         self.family_combo = QComboBox()
         self.size_combo = QComboBox()
         self.custom_model_edit = QLineEdit()
-        self.custom_model_edit.setPlaceholderText("Путь к файлу модели .pt")
+        self.custom_model_edit.setPlaceholderText(tr("Путь к файлу модели .pt"))
         self.custom_model_edit.setEnabled(False)
-        custom_browse = QPushButton("Обзор...")
+        custom_browse = QPushButton(tr("Обзор..."))
         custom_browse.clicked.connect(self.browse_custom_model)
         custom_layout = QHBoxLayout()
         custom_layout.addWidget(self.custom_model_edit)
         custom_layout.addWidget(custom_browse)
 
-        model_layout.addRow("Семейство:", self.family_combo)
-        model_layout.addRow("Размер:", self.size_combo)
-        model_layout.addRow("Custom модель:", custom_layout)
+        model_layout.addRow(tr("Семейство:"), self.family_combo)
+        model_layout.addRow(tr("Размер:"), self.size_combo)
+        model_layout.addRow(tr("Custom модель:"), custom_layout)
 
         model_group.setLayout(model_layout)
         control_layout.addWidget(model_group)
@@ -257,69 +268,69 @@ class TrainingWidget(QWidget):
         self.family_combo.currentTextChanged.connect(self.update_vram_estimate)
         self.size_combo.currentTextChanged.connect(self.update_vram_estimate)
 
-        form_group = QGroupBox("Параметры обучения")
+        form_group = QGroupBox(tr("Параметры обучения"))
         form_layout = QFormLayout()
 
         self.data_edit = QLineEdit()
-        self.data_edit.setPlaceholderText("Путь к data.yaml (или папке для классификации)")
-        data_browse = QPushButton("Обзор...")
+        self.data_edit.setPlaceholderText(tr("Путь к data.yaml (или папке для классификации)"))
+        data_browse = QPushButton(tr("Обзор..."))
         data_browse.clicked.connect(self.browse_data)
         data_layout = QHBoxLayout()
         data_layout.addWidget(self.data_edit)
         data_layout.addWidget(data_browse)
-        form_layout.addRow("Датасет:", data_layout)
+        form_layout.addRow(tr("Датасет:"), data_layout)
 
         self.epochs_spin = QSpinBox()
         self.epochs_spin.setRange(1, 1000)
         self.epochs_spin.setValue(100)
         self.epochs_spin.valueChanged.connect(self.update_vram_estimate)
-        form_layout.addRow("Эпохи:", self.epochs_spin)
+        form_layout.addRow(tr("Эпохи:"), self.epochs_spin)
 
         self.batch_spin = QSpinBox()
         self.batch_spin.setRange(1, 256)
         self.batch_spin.setValue(16)
         self.batch_spin.valueChanged.connect(self.update_vram_estimate)
-        form_layout.addRow("Batch:", self.batch_spin)
+        form_layout.addRow(tr("Batch:"), self.batch_spin)
 
         self.imgsz_spin = QSpinBox()
         self.imgsz_spin.setRange(32, 1280)
         self.imgsz_spin.setValue(640)
         self.imgsz_spin.valueChanged.connect(self.update_vram_estimate)
-        form_layout.addRow("Image size:", self.imgsz_spin)
+        form_layout.addRow(tr("Image size:"), self.imgsz_spin)
 
         self.device_combo = QComboBox()
         self.device_combo.setEditable(True)
         self.device_combo.setInsertPolicy(QComboBox.NoInsert)
         self.populate_device_list()
         self.device_combo.currentTextChanged.connect(self.update_vram_estimate)
-        form_layout.addRow("Device:", self.device_combo)
+        form_layout.addRow(tr("Device:"), self.device_combo)
 
         self.workers_spin = QSpinBox()
         self.workers_spin.setRange(0, 16)
         if getattr(sys, 'frozen', False):
             self.workers_spin.setValue(0)
             self.workers_spin.setEnabled(False)
-            self.workers_spin.setToolTip("В скомпилированной версии workers должен быть 0")
+            self.workers_spin.setToolTip(tr("В скомпилированной версии workers должен быть 0"))
         else:
             self.workers_spin.setValue(8)
-        form_layout.addRow("Workers:", self.workers_spin)
+        form_layout.addRow(tr("Workers:"), self.workers_spin)
 
         self.patience_spin = QSpinBox()
         self.patience_spin.setRange(0, 1000)
         self.patience_spin.setValue(50)
-        form_layout.addRow("Patience:", self.patience_spin)
+        form_layout.addRow(tr("Patience:"), self.patience_spin)
 
         self.project_edit = QLineEdit()
         self.project_edit.setText("runs/train")
-        form_layout.addRow("Project:", self.project_edit)
+        form_layout.addRow(tr("Project:"), self.project_edit)
 
         self.name_edit = QLineEdit()
         self.name_edit.setText("exp")
-        form_layout.addRow("Name:", self.name_edit)
+        form_layout.addRow(tr("Name:"), self.name_edit)
 
         self.exist_ok_check = QCheckBox()
         self.exist_ok_check.setChecked(False)
-        form_layout.addRow("Exist OK:", self.exist_ok_check)
+        form_layout.addRow(tr("Exist OK:"), self.exist_ok_check)
 
         form_group.setLayout(form_layout)
         control_layout.addWidget(form_group)
@@ -332,7 +343,7 @@ class TrainingWidget(QWidget):
         aug_tab = QWidget()
         aug_layout = QVBoxLayout(aug_tab)
 
-        aug_group = QGroupBox("Параметры аугментации данных")
+        aug_group = QGroupBox(tr("Параметры аугментации данных"))
         aug_grid = QGridLayout()
 
         # Список параметров: (имя, тип, минимум, максимум, шаг, значение по умолчанию, подсказка)
@@ -376,21 +387,21 @@ class TrainingWidget(QWidget):
         aug_layout.addWidget(aug_group)
 
         # Кнопка сброса к значениям по умолчанию
-        reset_btn = QPushButton("Сбросить к значениям по умолчанию")
+        reset_btn = QPushButton(tr("Сбросить к значениям по умолчанию"))
         reset_btn.clicked.connect(self.reset_augmentation)
         aug_layout.addWidget(reset_btn)
 
         aug_layout.addStretch()
-        tabs.addTab(aug_tab, "Аугментация")
+        tabs.addTab(aug_tab, tr("Аугментация"))
 
         # --- Кнопки управления обучением ---
         btn_layout = QHBoxLayout()
-        self.start_btn = QPushButton("Старт")
+        self.start_btn = QPushButton(tr("Старт"))
         self.start_btn.clicked.connect(self.start_training)
-        self.pause_btn = QPushButton("Пауза")
+        self.pause_btn = QPushButton(tr("Пауза"))
         self.pause_btn.setEnabled(False)
         self.pause_btn.clicked.connect(self.toggle_pause)
-        self.stop_btn = QPushButton("Стоп")
+        self.stop_btn = QPushButton(tr("Стоп"))
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_training)
         btn_layout.addWidget(self.start_btn)
@@ -404,14 +415,14 @@ class TrainingWidget(QWidget):
         self.progress.setValue(0)
         control_layout.addWidget(self.progress)
 
-        self.time_label = QLabel("Осталось: --:--:--")
+        self.time_label = QLabel(tr("Осталось: --:--:--"))
         self.time_label.setAlignment(Qt.AlignCenter)
         control_layout.addWidget(self.time_label)
 
         # --- Вкладка графиков ---
         plot_tab = QWidget()
         plot_layout = QVBoxLayout(plot_tab)
-        tabs.addTab(plot_tab, "Графики")
+        tabs.addTab(plot_tab, tr("Графики"))
 
         self.figure = Figure(figsize=(8, 6))
         self.canvas = FigureCanvas(self.figure)
@@ -419,14 +430,14 @@ class TrainingWidget(QWidget):
 
         self.ax1 = self.figure.add_subplot(211)
         self.ax2 = self.figure.add_subplot(212)
-        self.ax1.set_xlabel('Epoch')
-        self.ax2.set_xlabel('Epoch')
+        self.ax1.set_xlabel(tr('Epoch'))
+        self.ax2.set_xlabel(tr('Epoch'))
         self.figure.tight_layout()
 
         # --- Вкладка логов ---
         log_tab = QWidget()
         log_layout = QVBoxLayout(log_tab)
-        tabs.addTab(log_tab, "Логи")
+        tabs.addTab(log_tab, tr("Логи"))
 
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
@@ -524,19 +535,19 @@ class TrainingWidget(QWidget):
             if available is not None:
                 if vram_needed > available * 0.9:
                     color = "red"
-                    msg = (f"⚠️ Оценочное потребление {vram_needed:.1f} GB превышает 90% "
-                           f"доступной памяти ({available:.1f} GB). Возможен Out of Memory!")
+                    msg = (f"⚠️ {tr('Оценочное потребление')} {vram_needed:.1f} GB {tr('превышает 90% доступной памяти')} "
+                           f"({available:.1f} GB). {tr('Возможен Out of Memory!')}")
                 elif vram_needed > available * 0.7:
                     color = "orange"
-                    msg = (f"⚠️ Оценочное потребление {vram_needed:.1f} GB близко к доступной "
-                           f"памяти ({available:.1f} GB). Риск нехватки.")
+                    msg = (f"⚠️ {tr('Оценочное потребление')} {vram_needed:.1f} GB {tr('близко к доступной памяти')} "
+                           f"({available:.1f} GB). {tr('Риск нехватки.')}")
                 else:
                     color = "green"
-                    msg = (f"✅ Оценочное потребление {vram_needed:.1f} GB. Доступно "
-                           f"{available:.1f} GB. Должно хватить.")
+                    msg = (f"✅ {tr('Оценочное потребление')} {vram_needed:.1f} GB. {tr('Доступно')} "
+                           f"{available:.1f} GB. {tr('Должно хватить.')}")
             else:
-                msg = (f"⚠️ Приблизительное потребление памяти: ~{vram_needed} GB. "
-                       "Не удалось определить доступную память.")
+                msg = (f"⚠️ {tr('Приблизительное потребление памяти')}: ~{vram_needed} GB. "
+                       f"{tr('Не удалось определить доступную память.')}")
                 color = "orange"
 
             self.vram_label.setStyleSheet(f"color: {color}; font-weight: bold;")
@@ -553,7 +564,7 @@ class TrainingWidget(QWidget):
         self.update_size_list()
 
     def update_size_list(self):
-        task = 'detect' if self.task_detect.isChecked() else 'classify'
+        task = self._current_task()
         family = self.family_combo.currentText()
         if not family:
             return
@@ -565,21 +576,29 @@ class TrainingWidget(QWidget):
         self.custom_model_edit.setEnabled(family == 'Custom')
 
     def on_task_changed(self):
-        task = 'detect' if self.task_detect.isChecked() else 'classify'
+        task = self._current_task()
         self.update_family_list(task)
         self.update_size_list()
         self.update_vram_estimate()
 
+    def _current_task(self):
+        if self.task_detect.isChecked():
+            return 'detect'
+        elif self.task_segment.isChecked():
+            return 'segment'
+        else:
+            return 'classify'
+
     def browse_custom_model(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Выберите файл модели", "", "Model files (*.pt)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("Выберите файл модели"), "", "Model files (*.pt)")
         if path:
             self.custom_model_edit.setText(path)
 
     def browse_data(self):
-        if self.task_detect.isChecked():
-            path, _ = QFileDialog.getOpenFileName(self, "Выберите data.yaml", "", "YAML files (*.yaml)")
+        if self.task_detect.isChecked() or self.task_segment.isChecked():
+            path, _ = QFileDialog.getOpenFileName(self, "data.yaml", "", "YAML files (*.yaml)")
         else:
-            path = QFileDialog.getExistingDirectory(self, "Выберите корневую папку с данными (train/val)")
+            path = QFileDialog.getExistingDirectory(self, tr("Dataset folder"))
         if path:
             self.data_edit.setText(path)
 
@@ -588,7 +607,8 @@ class TrainingWidget(QWidget):
         if family == 'Custom':
             return self.custom_model_edit.text()
         size = self.size_combo.currentText()
-        if self.task_detect.isChecked():
+        task = self._current_task()
+        if task == 'detect':
             if family.startswith('YOLOv8'):
                 return f"yolov8{size}.pt"
             elif family.startswith('YOLOv9'):
@@ -601,6 +621,13 @@ class TrainingWidget(QWidget):
                 return f"yolo26{size}.pt"
             else:
                 return f"yolov8{size}.pt"
+        elif task == 'segment':
+            if family.startswith('YOLOv8'):
+                return f"yolov8{size}-seg.pt"
+            elif family.startswith('YOLOv11'):
+                return f"yolo11{size}-seg.pt"
+            else:
+                return f"yolov8{size}-seg.pt"
         else:
             if family.startswith('YOLOv8'):
                 return f"yolov8{size}-cls.pt"
@@ -633,15 +660,15 @@ class TrainingWidget(QWidget):
         return params
 
     def start_training(self):
-        task = 'detect' if self.task_detect.isChecked() else 'classify'
+        task = self._current_task()
         model_path = self.get_model_path()
         data_path = self.data_edit.text()
         if self.family_combo.currentText() == 'Custom':
             if not os.path.exists(model_path):
-                QMessageBox.warning(self, "Ошибка", f"Файл модели не найден: {model_path}")
+                QMessageBox.warning(self, tr("Ошибка"), f"{tr('Файл модели не найден')}: {model_path}")
                 return
         if not os.path.exists(data_path):
-            QMessageBox.warning(self, "Ошибка", f"Датасет не найден: {data_path}")
+            QMessageBox.warning(self, tr("Ошибка"), f"{tr('Датасет не найден')}: {data_path}")
             return
 
         params = self.get_params()
@@ -655,7 +682,7 @@ class TrainingWidget(QWidget):
         self.acc_data.clear()
         self.update_plot()
         self.progress.setValue(0)
-        self.time_label.setText("Осталось: --:--:--")
+        self.time_label.setText(tr("Осталось: --:--:--"))
         self.start_time = time.time()
         self.last_epoch_time = 0
         self.avg_epoch_time = 0
@@ -667,36 +694,33 @@ class TrainingWidget(QWidget):
         self.worker.paused_signal.connect(self.on_paused)
         self.worker.start()
 
-        self.start_btn.setEnabled(False)
-        self.pause_btn.setEnabled(True)
-        self.pause_btn.setText("Пауза")
         self.stop_btn.setEnabled(True)
-        self.add_log("Обучение запущено...")
+        self.add_log(tr("Обучение запущено..."))
 
     def toggle_pause(self):
         if self.worker is None:
             return
-        if self.pause_btn.text() == "Пауза":
+        if self.pause_btn.text() == tr("Пауза"):
             self.worker.pause()
-            self.pause_btn.setText("Продолжить")
-            self.add_log("Обучение приостановлено.")
+            self.pause_btn.setText(tr("Продолжить"))
+            self.add_log(tr("Обучение приостановлено."))
         else:
             self.worker.resume()
-            self.pause_btn.setText("Пауза")
-            self.add_log("Обучение возобновлено.")
+            self.pause_btn.setText(tr("Пауза"))
+            self.add_log(tr("Обучение возобновлено."))
 
     def stop_training(self):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
-            self.add_log("Остановка обучения...")
+            self.add_log(tr("Остановка обучения..."))
             if not self.worker.wait(2000):
                 self.worker.terminate()
                 self.worker.wait()
             self.stop_btn.setEnabled(False)
             self.pause_btn.setEnabled(False)
             self.start_btn.setEnabled(True)
-            self.add_log("Обучение остановлено.")
-            self.time_label.setText("Осталось: --:--:--")
+            self.add_log(tr("Обучение остановлено."))
+            self.time_label.setText(tr("Осталось: --:--:--"))
 
     def on_paused(self):
         pass
@@ -720,9 +744,9 @@ class TrainingWidget(QWidget):
             hours = remaining_seconds // 3600
             minutes = (remaining_seconds % 3600) // 60
             seconds = remaining_seconds % 60
-            self.time_label.setText(f"Осталось: {hours:02d}:{minutes:02d}:{seconds:02d}")
+            self.time_label.setText(f"{tr('Осталось')}: {hours:02d}:{minutes:02d}:{seconds:02d}")
         else:
-            self.time_label.setText("Осталось: --:--:--")
+            self.time_label.setText(tr("Осталось: --:--:--"))
 
         self.epochs_data.append(epoch)
 
@@ -747,14 +771,14 @@ class TrainingWidget(QWidget):
             self.precision_data.append(prec)
             self.recall_data.append(rec)
 
-            loss_msg = (f"Эпоха {epoch}: box={box_loss:.4f}, cls={cls_loss:.4f}, dfl={dfl_loss:.4f}, "
+            loss_msg = (f"{tr('Эпоха')} {epoch}: box={box_loss:.4f}, cls={cls_loss:.4f}, dfl={dfl_loss:.4f}, "
                         f"mAP50={map50:.4f}, mAP95={map95:.4f}, P={prec:.4f}, R={rec:.4f}")
         else:
             loss = metrics.get('loss', 0)
             acc = metrics.get('accuracy', 0)
             self.loss_data.setdefault('loss', []).append(loss)
             self.acc_data.append(acc)
-            loss_msg = f"Эпоха {epoch}: loss={loss:.4f}, acc={acc:.4f}"
+            loss_msg = f"{tr('Эпоха')} {epoch}: loss={loss:.4f}, acc={acc:.4f}"
 
         self.add_log(loss_msg)
         self.update_plot()
@@ -772,8 +796,8 @@ class TrainingWidget(QWidget):
                 if 'dfl_loss' in self.loss_data:
                     self.ax1.plot(self.epochs_data, self.loss_data['dfl_loss'], label='dfl_loss')
                 self.ax1.legend()
-                self.ax1.set_ylabel('Loss')
-                self.ax1.set_title('Loss')
+                self.ax1.set_ylabel(tr('Loss'))
+                self.ax1.set_title(tr('Loss'))
 
                 # mAP и точность/полнота
                 if self.map_data:
@@ -785,21 +809,21 @@ class TrainingWidget(QWidget):
                 if self.recall_data and any(self.recall_data):
                     self.ax2.plot(self.epochs_data, self.recall_data, label='Recall', color='red')
                 self.ax2.legend()
-                self.ax2.set_ylabel('Metrics')
-                self.ax2.set_title('Metrics')
+                self.ax2.set_ylabel(tr('Metrics'))
+                self.ax2.set_title(tr('Metrics'))
             else:
                 if self.loss_data.get('loss'):
                     self.ax1.plot(self.epochs_data, self.loss_data['loss'], label='loss', color='red')
                     self.ax1.legend()
-                    self.ax1.set_ylabel('Loss')
-                    self.ax1.set_title('Loss')
+                    self.ax1.set_ylabel(tr('Loss'))
+                    self.ax1.set_title(tr('Loss'))
                 if self.acc_data:
                     self.ax2.plot(self.epochs_data, self.acc_data, label='accuracy', color='blue')
                     self.ax2.legend()
-                    self.ax2.set_ylabel('Accuracy')
-                    self.ax2.set_title('Accuracy')
-        self.ax1.set_xlabel('Epoch')
-        self.ax2.set_xlabel('Epoch')
+                    self.ax2.set_ylabel(tr('Accuracy'))
+                    self.ax2.set_title(tr('Accuracy'))
+        self.ax1.set_xlabel(tr('Epoch'))
+        self.ax2.set_xlabel(tr('Epoch'))
         self.figure.tight_layout()
         self.canvas.draw()
 
@@ -807,12 +831,12 @@ class TrainingWidget(QWidget):
         self.start_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
-        self.pause_btn.setText("Пауза")
+        self.pause_btn.setText(tr("Пауза"))
         if success:
-            self.add_log("Обучение успешно завершено.")
+            self.add_log(tr("Обучение успешно завершено."))
         else:
-            self.add_log("Обучение завершено с ошибкой.")
-        self.time_label.setText("Осталось: --:--:--")
+            self.add_log(tr("Обучение завершено с ошибкой."))
+        self.time_label.setText(tr("Осталось: --:--:--"))
 
     def add_log(self, msg):
         self.log_text.append(msg)
