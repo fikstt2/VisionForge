@@ -71,7 +71,9 @@ def cv2_to_qpixmap(cv_img):
     rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
     h, w, ch = rgb_image.shape
     bytes_per_line = ch * w
-    qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+    # Bug #6 fix: keep reference to rgb_image so NumPy buffer isn't GC'd
+    # before QImage finishes using it; copy() ensures data ownership.
+    qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
     return QPixmap.fromImage(qt_image)
 
 def qpixmap_to_cv2(pixmap):
@@ -81,6 +83,7 @@ def qpixmap_to_cv2(pixmap):
     width = qimage.width()
     height = qimage.height()
     ptr = qimage.bits()
-    ptr.setsize(qimage.byteCount())
-    arr = np.array(ptr).reshape(height, width, 3)  # RGB
-    return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+    # byteCount() is deprecated in Qt5.10+; use width*height*3 directly
+    ptr.setsize(width * height * 3)
+    arr = np.frombuffer(ptr, dtype=np.uint8).reshape(height, width, 3).copy()
+    return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)

@@ -22,7 +22,11 @@ build/
 
 # macOS
 .DS_Store
-
+# Тяжелые веса моделей и папки обучения YOLO
+*.pt
+*.weights
+runs/
+ui/runs/
 # Logs and databases
 *.log
 *.sqlite3

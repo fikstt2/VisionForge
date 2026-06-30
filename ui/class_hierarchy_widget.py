@@ -29,6 +29,8 @@ class ClassHierarchyWidget(QTreeWidget):
 
         self.itemClicked.connect(self.on_item_clicked)
         self.itemDoubleClicked.connect(self.on_item_double_clicked)
+        # Connect checkbox state changes
+        self.itemChanged.connect(self.on_item_changed)
 
     def show_context_menu(self, position):
         item = self.itemAt(position)
@@ -74,6 +76,7 @@ class ClassHierarchyWidget(QTreeWidget):
         class_colors: словарь {имя_класса: цвет}
         counts: словарь {имя_класса: количество} для отображения счётчиков.
         """
+        self.blockSignals(True)
         self.clear()
         self.counts = counts or {}
         self.class_colors = class_colors
@@ -87,7 +90,8 @@ class ClassHierarchyWidget(QTreeWidget):
                     # Это группа
                     group_item = QTreeWidgetItem([item_data["name"], ""])
                     group_item.setData(0, Qt.UserRole, "group")
-                    group_item.setFlags(group_item.flags() | Qt.ItemIsEditable)
+                    group_item.setFlags(group_item.flags() | Qt.ItemIsEditable | Qt.ItemIsUserCheckable)
+                    group_item.setCheckState(0, Qt.Checked)
                     group_item.setIcon(0, QIcon())
                     parent.addChild(group_item)
                     if "children" in item_data:
@@ -96,6 +100,7 @@ class ClassHierarchyWidget(QTreeWidget):
         root = self.invisibleRootItem()
         add_items(root, hierarchy)
         self.expandAll()
+        self.blockSignals(False)
 
     def _add_class_item(self, parent, class_name):
         """Добавляет элемент класса с иконкой цвета и счётчиком."""
@@ -103,7 +108,8 @@ class ClassHierarchyWidget(QTreeWidget):
         count = self.counts.get(class_name, 0)
         item = QTreeWidgetItem([class_name, str(count)])
         item.setData(0, Qt.UserRole, "class")
-        item.setFlags(item.flags() | Qt.ItemIsDragEnabled)
+        item.setFlags(item.flags() | Qt.ItemIsDragEnabled | Qt.ItemIsUserCheckable)
+        item.setCheckState(0, Qt.Checked)
         pixmap = QPixmap(14, 14)
         pixmap.fill(QColor(color))
         item.setIcon(0, QIcon(pixmap))
@@ -163,6 +169,83 @@ class ClassHierarchyWidget(QTreeWidget):
             class_item.setText(0, new_name.strip())
             self.hierarchy_changed.emit()
 
+    def on_item_changed(self, item, column):
+        """Propagate check state to children and update parents."""
+        if column != 0:
+            return
+        state = item.checkState(0)
+        
+        self.blockSignals(True)
+        # Apply to all children recursively
+        def set_children_check(it):
+            for i in range(it.childCount()):
+                child = it.child(i)
+                child.setCheckState(0, state)
+                set_children_check(child)
+        set_children_check(item)
+        
+        # Update parent based on siblings
+        def update_parent(it):
+            parent = it.parent()
+            if parent is None:
+                return
+            # If any child is checked, parent should be partially checked (Qt.PartiallyChecked) or checked if all
+            checked = 0
+            unchecked = 0
+            for i in range(parent.childCount()):
+                cs = parent.child(i).checkState(0)
+                if cs == Qt.Checked:
+                    checked += 1
+                elif cs == Qt.Unchecked:
+                    unchecked += 1
+            
+            if checked == parent.childCount():
+                parent.setCheckState(0, Qt.Checked)
+            elif unchecked == parent.childCount():
+                parent.setCheckState(0, Qt.Unchecked)
+            else:
+                parent.setCheckState(0, Qt.PartiallyChecked)
+            update_parent(parent)
+        
+        update_parent(item)
+        self.blockSignals(False)
+
+    def get_mapping(self, merge_to_parent=True):
+        """Return mapping of each checked class to its top‑level group name if merge_to_parent is True.
+        If merge_to_parent is False, maps each class to itself.
+        If a class has no group ancestors, it maps to itself.
+        """
+        mapping = {}
+        def traverse(item, top_group=None):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                role = child.data(0, Qt.UserRole)
+                if role == "group":
+                    # This group becomes the new top_group for its descendants
+                    traverse(child, child.text(0))
+                elif role == "class":
+                    if child.checkState(0) == Qt.Checked:
+                        if merge_to_parent:
+                            mapping[child.text(0)] = top_group if top_group else child.text(0)
+                        else:
+                            mapping[child.text(0)] = child.text(0)
+        root = self.invisibleRootItem()
+        traverse(root)
+        return mapping
+
+    def get_excluded_classes(self):
+        """Return set of class names that are unchecked (excluded)."""
+        excluded = set()
+        def collect(item):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                role = child.data(0, Qt.UserRole)
+                if role == "class" and child.checkState(0) == Qt.Unchecked:
+                    excluded.add(child.text(0))
+                collect(child)
+        collect(self.invisibleRootItem())
+        return excluded
+
     def delete_group(self, group_item):
         reply = QMessageBox.question(self, tr("Удаление группы"),
                                      f"{tr('Удалить группу')} '{group_item.text(0)}' {tr('и все её содержимое?')}",
@@ -185,7 +268,9 @@ class ClassHierarchyWidget(QTreeWidget):
         """Добавляет группу на верхний уровень и возвращает её."""
         item = QTreeWidgetItem([name, ""])
         item.setData(0, Qt.UserRole, "group")
-        item.setFlags(item.flags() | Qt.ItemIsEditable)
+        # make group checkable and initially checked
+        item.setFlags(item.flags() | Qt.ItemIsEditable | Qt.ItemIsUserCheckable)
+        item.setCheckState(0, Qt.Checked)
         self.addTopLevelItem(item)
         self.hierarchy_changed.emit()
         return item

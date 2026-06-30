@@ -260,8 +260,7 @@ class ThumbnailBar(QWidget):
         item = QListWidgetItem()
         item.setData(Qt.UserRole, filename)
         item.setIcon(QIcon())
-        # Показываем только имя файла без расширения
-        base = os.path.splitext(os.path.basename(filename))[0]
+        # Bug #13 fix: 'base' was computed but never used — removed dead code
         item.setToolTip(os.path.basename(filename))
         self.list_widget.addItem(item)
 

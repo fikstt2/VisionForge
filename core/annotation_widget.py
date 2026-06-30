@@ -1,4 +1,5 @@
 from collections import deque
+import copy
 import logging
 from PyQt5.QtWidgets import QOpenGLWidget
 from PyQt5.QtCore import Qt, QRect, pyqtSignal
@@ -55,6 +56,10 @@ class AnnotationWidget(QOpenGLWidget):
         self.dragging_point_idx = -1
         self.drag_polygon_idx = -1
 
+        # Состояние «призрачной» точки при зажатой ЛКМ в режиме полигона
+        self._poly_ghost_pos = None   # (x, y) в координатах изображения — превью при зажатой мыши
+        self._poly_press_hit_idx = -1 # индекс точки под курсором при нажатии (-1 = пусто)
+
         self.history = deque(maxlen=100)
         self.history_enabled = True
 
@@ -68,7 +73,10 @@ class AnnotationWidget(QOpenGLWidget):
         self.image_orig = img_np.copy()
         h, w, ch = self.image_orig.shape
         bytes_per_line = ch * w
-        qimage = QImage(self.image_orig.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        # GC fix: .copy() transfers ownership so NumPy buffer won't be freed
+        # while QImage / QPixmap is still referencing it
+        qimage = QImage(self.image_orig.data, w, h, bytes_per_line,
+                        QImage.Format_RGB888).copy()
         self.pixmap = QPixmap.fromImage(qimage)
         self.update()
 
@@ -180,20 +188,49 @@ class AnnotationWidget(QOpenGLWidget):
                 painter.drawText(sx1, sy1 - 5, self.current_class)
 
             # Рисуем текущий полигон при создании
-            if self.polygon_points:
+            if self.polygon_points or self._poly_ghost_pos:
                 painter.setPen(QPen(QColor(0, 255, 0), 2))
                 painter.setBrush(Qt.NoBrush)
                 screen_pts = []
                 for pt in self.polygon_points:
                     sx, sy = self.image_to_screen(pt[0], pt[1])
                     screen_pts.append(QPoint(sx, sy))
+
+                # «Призрачная» точка при зажатой мыши (превью до отпускания)
+                ghost_sp = None
+                if self._poly_ghost_pos is not None and self._poly_press_hit_idx < 0:
+                    gx, gy = self.image_to_screen(self._poly_ghost_pos[0], self._poly_ghost_pos[1])
+                    ghost_sp = QPoint(gx, gy)
+
+                # Линии между зафиксированными точками
                 for i in range(len(screen_pts) - 1):
                     painter.drawLine(screen_pts[i], screen_pts[i + 1])
-                # Рисуем точки
-                for sp in screen_pts:
-                    painter.setBrush(QColor(0, 255, 0))
-                    painter.drawEllipse(sp, 4, 4)
+
+                # Линия от последней точки к призраку
+                if ghost_sp and screen_pts:
+                    painter.setPen(QPen(QColor(0, 255, 0, 150), 1, Qt.DashLine))
+                    painter.drawLine(screen_pts[-1], ghost_sp)
+                    painter.setPen(QPen(QColor(0, 255, 0), 2))
+
+                # Рисуем зафиксированные точки
+                for i, sp in enumerate(screen_pts):
+                    if i == 0 and len(screen_pts) >= 3:
+                        # Первая точка — подсветка «закрыть полигон»
+                        painter.setBrush(QColor(255, 200, 0))
+                        painter.drawEllipse(sp, 6, 6)
+                    else:
+                        painter.setBrush(QColor(0, 255, 0))
+                        painter.drawEllipse(sp, 4, 4)
                     painter.setBrush(Qt.NoBrush)
+
+                # Рисуем призрачную точку (полупрозрачная)
+                if ghost_sp:
+                    painter.setBrush(QColor(0, 255, 0, 120))
+                    painter.setPen(QPen(QColor(0, 255, 0, 180), 1))
+                    painter.drawEllipse(ghost_sp, 4, 4)
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(QPen(QColor(0, 255, 0), 2))
+
                 if screen_pts:
                     painter.drawText(screen_pts[0].x(), screen_pts[0].y() - 5, self.current_class)
         else:
@@ -235,23 +272,25 @@ class AnnotationWidget(QOpenGLWidget):
             if x < 0 or y < 0 or x >= self.image_orig.shape[1] or y >= self.image_orig.shape[0]:
                 return
 
-            # Режим полигона: добавляем точку или двигаем существующую
+            # Режим полигона: при нажатии определяем — попали ли в точку
             if self.draw_mode == 'polygon' and self.drawing:
                 tol = 12
-                hit_existing = False
+                self._poly_press_hit_idx = -1
                 for p_idx, pt in enumerate(self.polygon_points):
                     sx, sy = self.image_to_screen(pt[0], pt[1])
                     if abs(event.x() - sx) < tol and abs(event.y() - sy) < tol:
                         if p_idx == 0 and len(self.polygon_points) >= 3:
-                            # Кликнули по первой точке - закрываем полигон
-                            self.finish_polygon()
-                            return
-                        self.dragging_temp_point_idx = p_idx
-                        hit_existing = True
+                            # Нажали на первую точку — закроем полигон при отпускании
+                            self._poly_press_hit_idx = 0
+                        else:
+                            # Нажали на существующую точку — начинаем перетаскивание
+                            self._poly_press_hit_idx = p_idx
+                            self.dragging_temp_point_idx = p_idx
                         break
-                
-                if not hit_existing:
-                    self.polygon_points.append((round(x), round(y)))
+
+                # Показываем призрак только если не попали в точку
+                if self._poly_press_hit_idx < 0:
+                    self._poly_ghost_pos = (round(x), round(y))
                 self.update()
                 return
 
@@ -342,7 +381,10 @@ class AnnotationWidget(QOpenGLWidget):
             self.save_state_to_history()
             self.drawing = True
             if self.draw_mode == 'polygon':
-                self.polygon_points = [(round(x), round(y))]
+                # Первую точку тоже фиксируем при отпускании; пока показываем призрак
+                self.polygon_points = []
+                self._poly_ghost_pos = (round(x), round(y))
+                self._poly_press_hit_idx = -1
             else:
                 self.drag_start = (x, y)
                 self.drag_end = (x, y)
@@ -439,6 +481,12 @@ class AnnotationWidget(QOpenGLWidget):
             self.update()
             return
 
+        # Обновляем «призрачную» точку при зажатой ЛКМ в режиме полигона (новая точка ещё не зафиксирована)
+        if self.drawing and self.draw_mode == 'polygon' and self._poly_ghost_pos is not None:
+            self._poly_ghost_pos = (round(x), round(y))
+            self.update()
+            return
+
         if self.dragging_point_idx >= 0 and self.drag_polygon_idx >= 0:
             poly = self.boxes[self.drag_polygon_idx].get("polygon")
             if poly:
@@ -508,7 +556,6 @@ class AnnotationWidget(QOpenGLWidget):
             self.panning = False
             return
         if event.button() == Qt.LeftButton:
-            self.dragging_temp_point_idx = -1
             if self.resize_mode:
                 self.resize_mode = None
                 self.resize_start_pos = None
@@ -523,9 +570,33 @@ class AnnotationWidget(QOpenGLWidget):
                 self.original_polygon = None
                 self.boxes_changed.emit()
                 return
-            # В режиме полигона mouseRelease не завершает фигуру
-            if self.draw_mode == 'polygon':
-                return
+
+            # Режим полигона: фиксируем точку при ОТПУСКАНИИ
+            if self.draw_mode == 'polygon' and self.drawing:
+                hit_idx = self._poly_press_hit_idx
+                self._poly_press_hit_idx = -1
+                self.dragging_temp_point_idx = -1
+                self._poly_ghost_pos = None
+
+                x, y = self.screen_to_image(event.x(), event.y())
+                if x < 0 or y < 0 or x >= self.image_orig.shape[1] or y >= self.image_orig.shape[0]:
+                    self.update()
+                    return
+
+                if hit_idx == 0 and len(self.polygon_points) >= 3:
+                    # Отпустили на первой точке — закрываем полигон
+                    self.finish_polygon()
+                    return
+                elif hit_idx > 0:
+                    # Отпустили после перетаскивания существующей точки — ничего не добавляем
+                    self.boxes_changed.emit()
+                    self.update()
+                    return
+                else:
+                    # Отпустили в пустом месте — добавляем точку
+                    self.polygon_points.append((round(x), round(y)))
+                    self.update()
+                    return
             if self.drawing:
                 if self.drag_start and self.drag_end:
                     x1 = round(min(self.drag_start[0], self.drag_end[0]))
@@ -569,6 +640,8 @@ class AnnotationWidget(QOpenGLWidget):
             self.status_message.emit(f"{tr('Добавлен полигон класса')} {self.current_class} ({n} {tr('точек')})")
             self.boxes_changed.emit()
         self.polygon_points = []
+        self._poly_ghost_pos = None
+        self._poly_press_hit_idx = -1
         self.drawing = False
         self.update()
 
@@ -592,6 +665,8 @@ class AnnotationWidget(QOpenGLWidget):
             if self.drawing:
                 self.drawing = False
                 self.polygon_points = []
+                self._poly_ghost_pos = None
+                self._poly_press_hit_idx = -1
                 self.drag_start = None
                 self.drag_end = None
                 self.update()
@@ -634,7 +709,6 @@ class AnnotationWidget(QOpenGLWidget):
     def save_state_to_history(self):
         if not self.history_enabled:
             return
-        import copy
         state = copy.deepcopy(self.boxes)
         self.history.append(state)
 
@@ -642,7 +716,6 @@ class AnnotationWidget(QOpenGLWidget):
         if not self.history:
             self.status_message.emit(tr("Нечего отменять"))
             return
-        import copy
         prev = self.history.pop()
         self.boxes = copy.deepcopy(prev)
         self.selected_idx = -1

@@ -4,12 +4,39 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QDoubleSpinBox, QPushButton, QGroupBox,
                              QRadioButton, QFileDialog, QMessageBox, QProgressDialog,
                              QComboBox, QCheckBox, QAbstractItemView, QLineEdit)
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from ui.theme import get_current_theme_style
 from project.dataset_preparer import prepare_detection_dataset, prepare_classification_dataset
 from project.project_manager import Project
 from ui.class_hierarchy_widget import ClassHierarchyWidget
 from core.i18n import tr
+
+class PrepareWorker(QThread):
+    progress_val = pyqtSignal(int, int) # current, total
+    finished = pyqtSignal(bool, str, object) # success, message, counts (tuple)
+    
+    def __init__(self, task_type, params):
+        super().__init__()
+        self.task_type = task_type # 'detection', 'segmentation' or 'classification'
+        self.params = params
+        
+    def run(self):
+        try:
+            if self.task_type in ('detection', 'segmentation'):
+                # prepare_detection_dataset expects task_type as parameter
+                counts = prepare_detection_dataset(
+                    **self.params, 
+                    progress_callback=self.progress_val.emit
+                )
+            else:
+                # prepare_classification_dataset
+                counts = prepare_classification_dataset(
+                    **self.params,
+                    progress_callback=self.progress_val.emit
+                )
+            self.finished.emit(True, "", counts)
+        except Exception as e:
+            self.finished.emit(False, str(e), (0, 0, 0))
 
 class PrepareDatasetDialog(QDialog):
     def __init__(self, main_window, parent=None):
@@ -66,10 +93,15 @@ class PrepareDatasetDialog(QDialog):
         layout.addWidget(source_group)
 
         # Выбор классов для иерархии
-        self.class_group = QGroupBox(tr("Выбор классов (будут объединены по иерархии)"))
+        self.class_group = QGroupBox(tr("Выбор классов"))
         class_layout = QVBoxLayout()
         self.class_tree = ClassHierarchyWidget()
         class_layout.addWidget(self.class_tree)
+        
+        self.merge_checkbox = QCheckBox(tr("Объединить в мегаклассы (по верхнему родителю)"))
+        self.merge_checkbox.setChecked(True)
+        class_layout.addWidget(self.merge_checkbox)
+        
         self.class_group.setLayout(class_layout)
         layout.addWidget(self.class_group)
 
@@ -189,48 +221,56 @@ class PrepareDatasetDialog(QDialog):
             QMessageBox.warning(self, tr("Ошибка"), tr("Сумма долей Train, Val, Test должна быть равна 1.0"))
             return
 
-        selected_mapping = self.class_tree.get_mapping()
+        selected_mapping = self.class_tree.get_mapping(merge_to_parent=self.merge_checkbox.isChecked())
+        excluded_classes = self.class_tree.get_excluded_classes()
+        
         if not self.task_classification.isChecked() and not selected_mapping:
             QMessageBox.warning(self, tr("Ошибка"), tr("Выберите хотя бы один класс для экспорта"))
             return
 
-        progress = QProgressDialog(tr("Подготовка датасета..."), tr("Отмена"), 0, 100, self)
-        progress.setWindowModality(Qt.WindowModal)
-        progress.show()
+        self.progress = QProgressDialog(tr("Подготовка датасета..."), tr("Отмена"), 0, 100, self)
+        self.progress.setWindowModality(Qt.WindowModal)
+        self.progress.setAutoClose(True)
+        self.progress.show()
 
-        try:
-            if self.task_detection.isChecked() or self.task_segmentation.isChecked():
-                # Подготовка для детекции/сегментации
-                # dataset_preparer сам поймет, сегментация это или детекция на основе данных в боксах
-                # но мы можем передать флаг если захотим принудительно фильтровать
-                task_type = 'segmentation' if self.task_segmentation.isChecked() else 'detection'
-                train_count, val_count, test_count = prepare_detection_dataset(
-                    project=project, 
-                    output_dir=out_dir, 
-                    train_ratio=self.train_spin.value(),
-                    val_ratio=self.val_spin.value(),
-                    test_ratio=self.test_spin.value(),
-                    class_mapping=selected_mapping,
-                    task_type=task_type
-                )
-            else:
-                # Подготовка для классификации
-                train_count, val_count, test_count = prepare_classification_dataset(
-                    project,
-                    out_dir,
-                    self.train_spin.value(),
-                    self.val_spin.value(),
-                    self.test_spin.value()
-                )
+        # Параметры для воркера
+        params = {
+            "project": project,
+            "output_dir": out_dir,
+            "train_ratio": self.train_spin.value(),
+            "val_ratio": self.val_spin.value(),
+            "test_ratio": self.test_spin.value(),
+            "class_mapping": selected_mapping,
+            "excluded_classes": excluded_classes
+        }
 
-            progress.setValue(100)
+        if self.task_detection.isChecked() or self.task_segmentation.isChecked():
+            task_type = 'segmentation' if self.task_segmentation.isChecked() else 'detection'
+            params["task_type"] = task_type
+        else:
+            task_type = 'classification'
+
+        self.worker = PrepareWorker(task_type, params)
+        self.worker.progress_val.connect(self.on_progress)
+        self.worker.finished.connect(self.on_finished)
+        self.worker.start()
+
+    def on_progress(self, current, total):
+        if total > 0:
+            val = int(current / total * 100)
+            self.progress.setValue(val)
+            self.progress.setLabelText(f"{tr('Обработка')}... {current}/{total}")
+
+    def on_finished(self, success, message, counts):
+        self.progress.close()
+        if success:
+            train_count, val_count, test_count = counts
             msg = f"{tr('Датасет успешно подготовлен!')}\n\n" \
                   f"{tr('Train')}: {train_count}\n" \
                   f"{tr('Val')}: {val_count}\n" \
                   f"{tr('Test')}: {test_count}\n\n" \
-                  f"{tr('Путь')}: {out_dir}"
+                  f"{tr('Путь')}: {self.output_edit.text()}"
             QMessageBox.information(self, tr("Готово"), msg)
             self.accept()
-        except Exception as e:
-            progress.close()
-            QMessageBox.critical(self, tr("Ошибка"), f"{tr('Ошибка при подготовке датасета')}: {str(e)}")
+        else:
+            QMessageBox.critical(self, tr("Ошибка"), f"{tr('Ошибка при подготовке датасета')}: {message}")

@@ -380,11 +380,11 @@ class OverlayWindow(QMainWindow):
                 CAPTURE_SCALE = max(0.1, CAPTURE_SCALE - 0.1)
                 self.capture_thread.scale = CAPTURE_SCALE
                 print(f"CAPTURE_SCALE = {CAPTURE_SCALE:.2f}")
-            elif self.safe_is_pressed(']'):
+            elif self.safe_is_pressed('m'):
                 DET_IMG_SIZE = min(1280, DET_IMG_SIZE + 64)
                 self.detector_thread.imgsz = DET_IMG_SIZE
                 print(f"DET_IMG_SIZE = {DET_IMG_SIZE}")
-            elif self.safe_is_pressed('['):
+            elif self.safe_is_pressed('n'):
                 DET_IMG_SIZE = max(320, DET_IMG_SIZE - 64)
                 self.detector_thread.imgsz = DET_IMG_SIZE
                 print(f"DET_IMG_SIZE = {DET_IMG_SIZE}")

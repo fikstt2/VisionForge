@@ -51,8 +51,14 @@ class Project:
             if isinstance(item, str):
                 result.add(item)
             elif isinstance(item, dict) and "name" in item:
-                if "children" in item:
-                    self._flatten_hierarchy(item["children"], result)
+                # Bug #8 fix: the group node itself may be a leaf class name too
+                # More importantly, recurse into children to find actual class names
+                children = item.get("children", [])
+                if children:
+                    self._flatten_hierarchy(children, result)
+                else:
+                    # A group with no children is treated as a class
+                    result.add(item["name"])
 
     def update_classes_from_hierarchy(self):
         """Обновляет self.classes на основе текущей иерархии."""
@@ -94,9 +100,13 @@ class Project:
             self.class_hierarchy = []
 
         # нормализация: если аннотация не список, оборачиваем
-        for img, ann in self.annotations.items():
+        # Bug #14 fix: guard against non-list values (strings, ints, dicts)
+        for img, ann in list(self.annotations.items()):
             if not isinstance(ann, list):
-                ann = [ann]
+                if isinstance(ann, dict):
+                    ann = [ann]
+                else:
+                    ann = []  # discard corrupt / unexpected data type
             self.annotations[img] = self._normalize_boxes(ann)
 
         # округляем координаты

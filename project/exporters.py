@@ -35,7 +35,15 @@ def export_yolo(project, output_dir):
             if cls_name not in class_to_id:
                 continue
             cls_id = class_to_id[cls_name]
-            x1, y1, x2, y2 = box["bbox"]
+            # Bug #5 fix: support polygon-only annotations
+            if "bbox" in box:
+                x1, y1, x2, y2 = box["bbox"]
+            elif "polygon" in box and box["polygon"]:
+                xs = [p[0] for p in box["polygon"]]
+                ys = [p[1] for p in box["polygon"]]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+            else:
+                continue
             x_center = (x1 + x2) / 2 / w
             y_center = (y1 + y2) / 2 / h
             width = (x2 - x1) / w
@@ -45,7 +53,7 @@ def export_yolo(project, output_dir):
         if label_lines:
             txt_name = os.path.splitext(filename)[0] + ".txt"
             txt_path = os.path.join(labels_dir, txt_name)
-            with open(txt_path, 'w') as f:
+            with open(txt_path, 'w', encoding='utf-8') as f:
                 f.write("\n".join(label_lines))
     print(f"YOLO export completed: {output_dir}")
 
@@ -89,7 +97,15 @@ def export_coco(project, output_file):
             cls_name = box["class"]
             if cls_name not in class_to_id:
                 continue
-            x1, y1, x2, y2 = box["bbox"]
+            # Bug #5 fix: support polygon-only annotations
+            if "bbox" in box:
+                x1, y1, x2, y2 = box["bbox"]
+            elif "polygon" in box and box["polygon"]:
+                xs = [p[0] for p in box["polygon"]]
+                ys = [p[1] for p in box["polygon"]]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+            else:
+                continue
             x, y = float(x1), float(y1)
             width, height = float(x2 - x1), float(y2 - y1)
             coco["annotations"].append({
@@ -135,7 +151,15 @@ def export_voc(project, output_dir):
             ET.SubElement(obj, "truncated").text = "0"
             ET.SubElement(obj, "difficult").text = "0"
             bbox_elem = ET.SubElement(obj, "bndbox")
-            x1, y1, x2, y2 = box["bbox"]
+            # Bug #5 fix: support polygon-only annotations
+            if "bbox" in box:
+                x1, y1, x2, y2 = box["bbox"]
+            elif "polygon" in box and box["polygon"]:
+                xs = [p[0] for p in box["polygon"]]
+                ys = [p[1] for p in box["polygon"]]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+            else:
+                continue
             ET.SubElement(bbox_elem, "xmin").text = str(x1)
             ET.SubElement(bbox_elem, "ymin").text = str(y1)
             ET.SubElement(bbox_elem, "xmax").text = str(x2)

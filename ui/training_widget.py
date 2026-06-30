@@ -57,7 +57,10 @@ MODEL_FAMILIES = {
     },
     'segment': {
         'YOLOv8-seg': ['n', 's', 'm', 'l', 'x'],
+        'YOLOv9-seg': ['t', 's', 'm', 'c', 'e'],
+        'YOLOv10-seg': ['n', 'm', 'l', 'x'],
         'YOLOv11-seg': ['n', 's', 'm', 'l', 'x'],
+        'YOLOv26-seg': ['n', 's', 'm', 'l', 'x'],
         'Custom': ['custom']
     }
 }
@@ -74,6 +77,20 @@ def estimate_vram_detection(family, size, imgsz, batch):
     scale = (imgsz / 640) ** 2
     vram_gb = mult * batch * scale * 0.1
     return max(1.0, round(vram_gb, 1))
+
+def estimate_vram_segmentation(family, size, imgsz, batch):
+    """Оценка VRAM для сегментационных моделей (~15-25% больше детекции)."""
+    base_mult = {
+        'YOLOv8-seg': {'n': 1.2, 's': 2.1, 'm': 3.5, 'l': 5.8, 'x': 9.2},
+        'YOLOv9-seg': {'t': 1.4, 's': 2.3, 'm': 4.0, 'c': 6.8, 'e': 11.5},
+        'YOLOv10-seg': {'n': 1.3, 'm': 3.7, 'l': 6.3, 'x': 10.5},
+        'YOLOv11-seg': {'n': 1.2, 's': 2.1, 'm': 3.5, 'l': 5.8, 'x': 9.2},
+        'YOLOv26-seg': {'n': 1.2, 's': 2.1, 'm': 3.5, 'l': 5.8, 'x': 9.2},
+    }
+    mult = base_mult.get(family, {}).get(size, 1.2)
+    scale = (imgsz / 640) ** 2
+    vram_gb = mult * batch * scale * 0.1
+    return max(1.2, round(vram_gb, 1))
 
 def estimate_vram_classification(family, size, imgsz, batch):
     base_mult = {
@@ -137,6 +154,7 @@ class TrainWorker(QThread):
             self.log_signal.emit(tr("Модель загружена. Начинаем обучение..."))
 
             model.add_callback('on_train_epoch_end', self.on_epoch_end)
+            model.add_callback('on_train_batch_end', self.on_batch_end)
             model.add_callback('on_train_end', self.on_train_end)
 
             if self.task_type == 'classify':
@@ -148,6 +166,13 @@ class TrainWorker(QThread):
             self.log_signal.emit(f"{tr('Ошибка')}: {str(e)}")
             self.finished_signal.emit(False)
         finally:
+            if 'model' in locals():
+                del model
+            import gc
+            gc.collect()
+            if TORCH_AVAILABLE and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
             sys.stdout = old_stdout
             sys.stderr = old_stderr
 
@@ -162,8 +187,34 @@ class TrainWorker(QThread):
         self.pause_mutex.unlock()
 
         epoch = trainer.epoch
-        metrics = trainer.metrics.copy() if trainer.metrics else {}
+        metrics = {}
+        
+        def safe_get_dict(obj):
+            try:
+                res = obj() if callable(obj) else obj
+                if isinstance(res, dict):
+                    return res
+            except:
+                pass
+            return {}
+
+        if hasattr(trainer, 'metrics'):
+            metrics.update(safe_get_dict(trainer.metrics))
+            
+        if hasattr(trainer, 'label_loss_items'):
+            metrics.update(safe_get_dict(trainer.label_loss_items))
+            
         self.epoch_signal.emit(epoch, metrics)
+
+    def on_batch_end(self, trainer):
+        if not self._is_running:
+            trainer.stop()
+            return
+        self.pause_mutex.lock()
+        if self._paused:
+            self.paused_signal.emit()
+            self.pause_condition.wait(self.pause_mutex)
+        self.pause_mutex.unlock()
 
     def on_train_end(self, trainer):
         self.log_signal.emit(tr("Обучение завершено."))
@@ -232,6 +283,8 @@ class TrainingWidget(QWidget):
         self.task_detect.setChecked(True)
         self.task_detect.toggled.connect(self.on_task_changed)
         self.task_detect.toggled.connect(self.update_vram_estimate)
+        # Bug #9 fix: task_classify was not connected to on_task_changed
+        self.task_classify.toggled.connect(self.on_task_changed)
         self.task_classify.toggled.connect(self.update_vram_estimate)
         self.task_segment.toggled.connect(self.on_task_changed)
         self.task_segment.toggled.connect(self.update_vram_estimate)
@@ -320,6 +373,27 @@ class TrainingWidget(QWidget):
         self.patience_spin.setValue(50)
         form_layout.addRow(tr("Patience:"), self.patience_spin)
 
+        # Оптимизации скорости
+        self.amp_check = QCheckBox(tr("Смешанная точность (AMP)"))
+        self.amp_check.setChecked(True)
+        self.amp_check.setToolTip(tr("Ускоряет обучение на GPU и снижает потребление памяти"))
+        form_layout.addRow("", self.amp_check)
+
+        self.cache_combo = QComboBox()
+        self.cache_combo.addItems([tr("Нет"), "disk", "ram"])
+        self.cache_combo.setToolTip(tr("Кэширование изображений для быстрой загрузки"))
+        form_layout.addRow(tr("Кэширование:"), self.cache_combo)
+
+        self.rect_check = QCheckBox(tr("Прямоугольное обучение (rect)"))
+        self.rect_check.setChecked(False)
+        self.rect_check.setToolTip(tr("Оптимизирует обучение для неквадратных изображений"))
+        form_layout.addRow("", self.rect_check)
+
+        self.plots_check = QCheckBox(tr("Генерировать графики YOLO"))
+        self.plots_check.setChecked(False)
+        self.plots_check.setToolTip(tr("Отключите для экономии времени на сохранение визуализаций"))
+        form_layout.addRow("", self.plots_check)
+
         self.project_edit = QLineEdit()
         self.project_edit.setText("runs/train")
         form_layout.addRow(tr("Project:"), self.project_edit)
@@ -393,6 +467,89 @@ class TrainingWidget(QWidget):
 
         aug_layout.addStretch()
         tabs.addTab(aug_tab, tr("Аугментация"))
+
+        # --- Вкладка «Настройки сегментации» ---
+        self.seg_tab = QWidget()
+        seg_layout = QVBoxLayout(self.seg_tab)
+        seg_layout.setContentsMargins(12, 12, 12, 12)
+        seg_layout.setSpacing(12)
+
+        # Предупреждение
+        warn_group = QGroupBox(tr("Важное предупреждение"))
+        warn_group.setStyleSheet(
+            "QGroupBox { border: 2px solid #e05555; border-radius: 6px; "
+            "margin-top: 6px; padding-top: 4px; color: #e05555; font-weight: bold; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 8px; color: #e05555; }"
+        )
+        warn_inner = QVBoxLayout()
+        warn_label = QLabel(tr(
+            "Сегментационные модели YOLO требуют полигональных масок.\n"
+            "Аннотации в формате прямоугольных боксов (bbox) НЕ содержат\n"
+            "информации о форме объекта — модель, обученная на таких данных,\n"
+            "будет возвращать прямоугольные маски вместо точных контуров.\n\n"
+            "Рекомендуется разметить объекты полигонами перед запуском обучения."
+        ))
+        warn_label.setWordWrap(True)
+        warn_label.setStyleSheet("color: #f0a0a0; font-size: 10pt; padding: 4px;")
+        warn_inner.addWidget(warn_label)
+        warn_group.setLayout(warn_inner)
+        seg_layout.addWidget(warn_group)
+
+        # Выбор поведения с боксами
+        box_mode_group = QGroupBox(tr("Поведение с bbox-аннотациями при экспорте датасета"))
+        box_mode_layout = QVBoxLayout()
+
+        self.seg_box_exclude = QRadioButton(tr("Исключить боксы из датасета (безопасно, рекомендуется)"))
+        self.seg_box_exclude.setChecked(True)
+        self.seg_box_exclude.setToolTip(tr(
+            "Аннотации без полигона будут пропущены при подготовке датасета. "
+            "Гарантирует корректные маски, но уменьшает объём данных."
+        ))
+
+        self.seg_box_convert = QRadioButton(tr("Конвертировать bbox в прямоугольный полигон"))
+        self.seg_box_convert.setToolTip(tr(
+            "Бокс будет преобразован в полигон из 4 вершин. "
+            "Маска будет прямоугольной — точность ниже, чем при ручной разметке."
+        ))
+
+        self.seg_box_keep = QRadioButton(tr("Использовать боксы как есть (только для опытных)"))
+        self.seg_box_keep.setToolTip(tr(
+            "Оставить аннотации без изменений. Результат непредсказуем."
+        ))
+
+        box_mode_layout.addWidget(self.seg_box_exclude)
+        box_mode_layout.addWidget(self.seg_box_convert)
+        box_mode_layout.addWidget(self.seg_box_keep)
+
+        self.seg_keep_warn = QLabel(
+            "⚠️ " + tr("Внимание: боксы без масок дадут прямоугольные сегменты. "
+                        "Качество сегментации будет очень низким.")
+        )
+        self.seg_keep_warn.setWordWrap(True)
+        self.seg_keep_warn.setStyleSheet("color: #e09020; font-style: italic; padding-left: 20px;")
+        self.seg_keep_warn.setVisible(False)
+        box_mode_layout.addWidget(self.seg_keep_warn)
+
+        self.seg_box_keep.toggled.connect(self.seg_keep_warn.setVisible)
+
+        box_mode_group.setLayout(box_mode_layout)
+        seg_layout.addWidget(box_mode_group)
+
+        hint_label = QLabel(
+            "💡 " + tr("Эти настройки применяются при подготовке датасета. "
+                       "Во время обучения VisionForge использует готовый data.yaml.")
+        )
+        hint_label.setWordWrap(True)
+        hint_label.setStyleSheet("color: #80a0c0; font-size: 9pt; padding: 4px;")
+        seg_layout.addWidget(hint_label)
+        seg_layout.addStretch()
+
+        self.seg_tab_index = tabs.addTab(self.seg_tab, tr("Сегментация ▶"))
+        self.tabs_widget = tabs
+
+        # Скрываем вкладку — активна только при выборе «Сегментация»
+        tabs.setTabVisible(self.seg_tab_index, False)
+        self.task_segment.toggled.connect(self._on_segment_tab_visibility)
 
         # --- Кнопки управления обучением ---
         btn_layout = QHBoxLayout()
@@ -519,7 +676,7 @@ class TrainingWidget(QWidget):
             size = self.size_combo.currentText()
             imgsz = self.imgsz_spin.value()
             batch = self.batch_spin.value()
-            task = 'detect' if self.task_detect.isChecked() else 'classify'
+            task = self._current_task()
             device = self.get_device_string()
 
             if family == 'Custom' or not size:
@@ -528,6 +685,8 @@ class TrainingWidget(QWidget):
 
             if task == 'detect':
                 vram_needed = estimate_vram_detection(family, size, imgsz, batch)
+            elif task == 'segment':
+                vram_needed = estimate_vram_segmentation(family, size, imgsz, batch)
             else:
                 vram_needed = estimate_vram_classification(family, size, imgsz, batch)
 
@@ -581,6 +740,10 @@ class TrainingWidget(QWidget):
         self.update_size_list()
         self.update_vram_estimate()
 
+    def _on_segment_tab_visibility(self, checked):
+        """Показывает/скрывает вкладку настроек сегментации."""
+        self.tabs_widget.setTabVisible(self.seg_tab_index, checked)
+
     def _current_task(self):
         if self.task_detect.isChecked():
             return 'detect'
@@ -624,8 +787,14 @@ class TrainingWidget(QWidget):
         elif task == 'segment':
             if family.startswith('YOLOv8'):
                 return f"yolov8{size}-seg.pt"
+            elif family.startswith('YOLOv9'):
+                return f"yolov9{size}-seg.pt"
+            elif family.startswith('YOLOv10'):
+                return f"yolov10{size}-seg.pt"
             elif family.startswith('YOLOv11'):
                 return f"yolo11{size}-seg.pt"
+            elif family.startswith('YOLOv26'):
+                return f"yolo26{size}-seg.pt"
             else:
                 return f"yolov8{size}-seg.pt"
         else:
@@ -652,11 +821,31 @@ class TrainingWidget(QWidget):
             'project': self.project_edit.text(),
             'name': self.name_edit.text(),
             'exist_ok': self.exist_ok_check.isChecked(),
-            'device': self.get_device_string()
+            'device': self.get_device_string(),
+            'amp': self.amp_check.isChecked(),
+            'rect': self.rect_check.isChecked(),
+            'plots': self.plots_check.isChecked()
         }
-        # Добавляем параметры аугментации
+
+        cache_val = self.cache_combo.currentText()
+        if cache_val == tr("Нет"):
+            params['cache'] = False
+        else:
+            params['cache'] = cache_val
+
+        # Параметры аугментации
         for name, widget in self.aug_widgets.items():
             params[name] = widget.value()
+
+        # Режим обработки боксов для сегментации
+        if self.task_segment.isChecked():
+            if self.seg_box_convert.isChecked():
+                params['seg_box_mode'] = 'convert'
+            elif self.seg_box_keep.isChecked():
+                params['seg_box_mode'] = 'keep'
+            else:
+                params['seg_box_mode'] = 'exclude'
+
         return params
 
     def start_training(self):
@@ -695,6 +884,8 @@ class TrainingWidget(QWidget):
         self.worker.start()
 
         self.stop_btn.setEnabled(True)
+        self.pause_btn.setEnabled(True)
+        self.start_btn.setEnabled(False)
         self.add_log(tr("Обучение запущено..."))
 
     def toggle_pause(self):
@@ -750,32 +941,47 @@ class TrainingWidget(QWidget):
 
         self.epochs_data.append(epoch)
 
-        if self.task_detect.isChecked():
+        if self.task_detect.isChecked() or self.task_segment.isChecked():
             # Потери
+            # Пытаемся найти ключи в разных форматах (train/ или без префикса)
             box_loss = metrics.get('train/box_loss', metrics.get('box_loss', 0))
             cls_loss = metrics.get('train/cls_loss', metrics.get('cls_loss', 0))
             dfl_loss = metrics.get('train/dfl_loss', metrics.get('dfl_loss', 0))
+            seg_loss = metrics.get('train/seg_loss', metrics.get('seg_loss', 0)) # для сегментации
+            
             self.loss_data.setdefault('box_loss', []).append(box_loss)
             self.loss_data.setdefault('cls_loss', []).append(cls_loss)
             self.loss_data.setdefault('dfl_loss', []).append(dfl_loss)
+            if self.task_segment.isChecked():
+                self.loss_data.setdefault('seg_loss', []).append(seg_loss)
 
             # mAP
             map50 = metrics.get('metrics/mAP50(B)', metrics.get('mAP50', metrics.get('map50', 0)))
             map95 = metrics.get('metrics/mAP50-95(B)', metrics.get('mAP50-95', metrics.get('map50-95', 0)))
+            # Если сегментация, mAP может называться по-другому в metrics/mAP50(M)
+            if self.task_segment.isChecked():
+                map50_m = metrics.get('metrics/mAP50(M)', 0)
+                if map50_m > 0: map50 = map50_m
+                map95_m = metrics.get('metrics/mAP50-95(M)', 0)
+                if map95_m > 0: map95 = map95_m
+
             self.map_data.append(map50)
             self.map95_data.append(map95)
 
-            # Precision, Recall (если есть)
-            prec = metrics.get('metrics/precision(B)', metrics.get('precision', 0))
-            rec = metrics.get('metrics/recall(B)', metrics.get('recall', 0))
+            # Precision, Recall
+            prec = metrics.get('metrics/precision(B)', metrics.get('precision', metrics.get('precision(B)', 0)))
+            rec = metrics.get('metrics/recall(B)', metrics.get('recall', metrics.get('recall(B)', 0)))
             self.precision_data.append(prec)
             self.recall_data.append(rec)
 
-            loss_msg = (f"{tr('Эпоха')} {epoch}: box={box_loss:.4f}, cls={cls_loss:.4f}, dfl={dfl_loss:.4f}, "
-                        f"mAP50={map50:.4f}, mAP95={map95:.4f}, P={prec:.4f}, R={rec:.4f}")
+            loss_msg = (f"{tr('Эпоха')} {epoch}: box={box_loss:.4f}, cls={cls_loss:.4f}, dfl={dfl_loss:.4f}")
+            if self.task_segment.isChecked():
+                loss_msg += f", seg={seg_loss:.4f}"
+            loss_msg += f", mAP50={map50:.4f}, mAP95={map95:.4f}, P={prec:.4f}, R={rec:.4f}"
         else:
-            loss = metrics.get('loss', 0)
-            acc = metrics.get('accuracy', 0)
+            # Классификация
+            loss = metrics.get('train/loss', metrics.get('loss', 0))
+            acc = metrics.get('metrics/accuracy_top1', metrics.get('accuracy', metrics.get('accuracy_top1', 0)))
             self.loss_data.setdefault('loss', []).append(loss)
             self.acc_data.append(acc)
             loss_msg = f"{tr('Эпоха')} {epoch}: loss={loss:.4f}, acc={acc:.4f}"
@@ -787,7 +993,7 @@ class TrainingWidget(QWidget):
         self.ax1.clear()
         self.ax2.clear()
         if self.epochs_data:
-            if self.task_detect.isChecked():
+            if self.task_detect.isChecked() or self.task_segment.isChecked():
                 # Потери
                 if 'box_loss' in self.loss_data:
                     self.ax1.plot(self.epochs_data, self.loss_data['box_loss'], label='box_loss')
@@ -795,9 +1001,13 @@ class TrainingWidget(QWidget):
                     self.ax1.plot(self.epochs_data, self.loss_data['cls_loss'], label='cls_loss')
                 if 'dfl_loss' in self.loss_data:
                     self.ax1.plot(self.epochs_data, self.loss_data['dfl_loss'], label='dfl_loss')
+                if 'seg_loss' in self.loss_data:
+                    self.ax1.plot(self.epochs_data, self.loss_data['seg_loss'], label='seg_loss')
+                
                 self.ax1.legend()
                 self.ax1.set_ylabel(tr('Loss'))
                 self.ax1.set_title(tr('Loss'))
+                self.ax1.set_xlabel(tr('Epoch'))
 
                 # mAP и точность/полнота
                 if self.map_data:
@@ -811,19 +1021,22 @@ class TrainingWidget(QWidget):
                 self.ax2.legend()
                 self.ax2.set_ylabel(tr('Metrics'))
                 self.ax2.set_title(tr('Metrics'))
+                self.ax2.set_xlabel(tr('Epoch'))
             else:
+                # Классификация
                 if self.loss_data.get('loss'):
                     self.ax1.plot(self.epochs_data, self.loss_data['loss'], label='loss', color='red')
                     self.ax1.legend()
                     self.ax1.set_ylabel(tr('Loss'))
                     self.ax1.set_title(tr('Loss'))
+                    self.ax1.set_xlabel(tr('Epoch'))
                 if self.acc_data:
                     self.ax2.plot(self.epochs_data, self.acc_data, label='accuracy', color='blue')
                     self.ax2.legend()
                     self.ax2.set_ylabel(tr('Accuracy'))
                     self.ax2.set_title(tr('Accuracy'))
-        self.ax1.set_xlabel(tr('Epoch'))
-        self.ax2.set_xlabel(tr('Epoch'))
+                    self.ax2.set_xlabel(tr('Epoch'))
+        
         self.figure.tight_layout()
         self.canvas.draw()
 

@@ -36,10 +36,11 @@ from core.i18n import tr
 class BatchWorker(QThread):
     progress = pyqtSignal(int, str)  # текущий индекс, имя файла
     finished = pyqtSignal(bool, str)  # успех, сообщение
-    cancelled = False
+    # NOTE: instance attribute — do NOT make this a class attribute (shared across instances)
 
     def __init__(self, images, project, detector, classifier, params, source_dir=None):
         super().__init__()
+        self.cancelled = False        # instance attribute — must NOT be class-level
         self.images = images          # список имён файлов (только имена, без пути)
         self.project = project        # текущий проект (для сохранения результатов)
         self.detector = detector
@@ -880,8 +881,15 @@ class MainWindow(QMainWindow):
     def save_project_as(self):
         new_path, _ = QFileDialog.getSaveFileName(self, tr("Сохранить копию JSON как"), "", tr("JSON files (*.json)"))
         if new_path:
+            # Bug #2 fix: save full format (annotations + colors + hierarchy)
+            data = {
+                "annotations": self.current_project.annotations,
+                "class_colors": self.current_project.class_colors,
+                "class_hierarchy": self.current_project.class_hierarchy,
+                "last_image": self.current_project.last_image,
+            }
             with open(new_path, 'w', encoding='utf-8') as f:
-                json.dump(self.current_project.annotations, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=False)
             self.update_status(f"{tr('Копия сохранена в')} {new_path}")
 
     def export_yolo(self):
@@ -1052,7 +1060,11 @@ class MainWindow(QMainWindow):
                 if self.filter_type in self.current_project.image_types.get(img, set())
             ]
         self.total_label.setText(f"{tr('Всего')}: {len(self.filtered_images)}")
-        unannotated = sum(1 for img in self.filtered_images if img not in self.current_project.annotations)
+        # Bug #10 fix: an image is unannotated if it has no annotations OR an empty list
+        unannotated = sum(
+            1 for img in self.filtered_images
+            if not self.current_project.annotations.get(img)
+        )
         annotated = len(self.filtered_images) - unannotated
         self.unannotated_label.setText(f"{tr('Неразмечено')}: {unannotated}")
         
@@ -1360,22 +1372,23 @@ class MainWindow(QMainWindow):
         else:
             self.current_mode = 'main'
             self.current_project = self.main_project
-        ok, msg = self.safe_load_project(self.current_project)
-        if not ok:
-            QMessageBox.warning(self, tr("Предупреждение"),
-                                f"{tr('Не удалось загрузить проект в режиме')} {self.current_mode}:\n{msg}\n{tr('Будет создан новый проект.')}")
-            self._reset_project(self.current_project)
-        self.after_project_load()
-        # Блокируем сигналы чтобы избежать бесконечного цикла
+        # Bug #11 fix: blockSignals BEFORE after_project_load to prevent re-entrant on_mode_changed
         self.main_radio.blockSignals(True)
         self.auto_radio.blockSignals(True)
         self.main_radio.setChecked(self.current_mode == 'main')
         self.auto_radio.setChecked(self.current_mode == 'auto')
         self.main_radio.blockSignals(False)
         self.auto_radio.blockSignals(False)
+        ok, msg = self.safe_load_project(self.current_project)
+        if not ok:
+            QMessageBox.warning(self, tr("Предупреждение"),
+                                f"{tr('Не удалось загрузить проект в режиме')} {self.current_mode}:\n{msg}\n{tr('Будет создан новый проект.')}")
+            self._reset_project(self.current_project)
+        self.after_project_load()
 
     # ---------- Настройки ----------
     def open_settings(self):
+        old_lang = config.LANGUAGE
         dialog = SettingsDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             new_config = dialog.get_config()
@@ -1407,11 +1420,30 @@ class MainWindow(QMainWindow):
             self.load_models_from_config()
             self.main_project = Project(config.SCREENSHOTS_DIR, config.MAIN_JSON)
             self.auto_project = Project(config.AUTO_IMAGES_DIR, config.AUTO_JSON)
-            self.current_project.save()
+            
+            # Проверка смены языка
+            if config.LANGUAGE != old_lang:
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Information)
+                msg.setWindowTitle(tr("Смена языка"))
+                msg.setText(tr("Для полной смены языка требуется перезагрузка программы."))
+                restart_btn = msg.addButton(tr("Перезагрузить сейчас"), QMessageBox.ActionRole)
+                msg.addButton(tr("Позже"), QMessageBox.RejectRole)
+                msg.exec_()
+                
+                if msg.clickedButton() == restart_btn:
+                    # Сохраняем проект перед перезагрузкой
+                    self.current_project.save()
+                    # Перезапуск
+                    python = sys.executable
+                    os.execl(python, python, *sys.argv)
+
+            # Bug #12 fix: update current_project BEFORE calling save/load
             if self.current_mode == 'main':
                 self.current_project = self.main_project
             else:
                 self.current_project = self.auto_project
+            self.current_project.save()
             self.current_project.load()
             self.update_filter_combo()
             self.update_filtered_images()
@@ -1425,7 +1457,9 @@ class MainWindow(QMainWindow):
     def get_thumbnail_cache_path(self, filename):
         if not config.THUMBNAIL_CACHE:
             return None
-        hash_name = hashlib.md5(filename.encode()).hexdigest() + ".jpg"
+        # Bug #7 fix: include images_dir to avoid collisions across projects
+        key = f"{self.current_project.images_dir}|{filename}"
+        hash_name = hashlib.md5(key.encode('utf-8')).hexdigest() + ".jpg"
         cache_dir = os.path.join(
             os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
             'VisionForge', 'thumb_cache'
@@ -1459,7 +1493,15 @@ class MainWindow(QMainWindow):
                 scale_w = pixmap.width() / orig_w
                 scale_h = pixmap.height() / orig_h
                 for box in boxes:
-                    x1, y1, x2, y2 = box["bbox"]
+                    # Bug #4 fix: support polygon-only annotations (no bbox)
+                    if "bbox" in box:
+                        x1, y1, x2, y2 = box["bbox"]
+                    elif "polygon" in box and box["polygon"]:
+                        xs = [p[0] for p in box["polygon"]]
+                        ys = [p[1] for p in box["polygon"]]
+                        x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+                    else:
+                        continue
                     nx1 = int(x1 * scale_w)
                     ny1 = int(y1 * scale_h)
                     nx2 = int(x2 * scale_w)
