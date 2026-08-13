@@ -1,34 +1,56 @@
 # ui/settings_dialog.py
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                              QLineEdit, QPushButton, QFileDialog, QDoubleSpinBox,
                              QFormLayout, QDialogButtonBox, QTabWidget,
-                             QCheckBox, QSpinBox, QWidget, QComboBox)
+                             QCheckBox, QSpinBox, QWidget, QComboBox, QMessageBox)
 from ui.theme import THEMES, get_current_theme_style
 import config
 from core.i18n import tr
+import os
 
 class SettingsDialog(QDialog):
-    def __init__(self, parent=None):
+    settings_changed = pyqtSignal()
+
+    def __init__(self, main_window, parent=None):
         super().__init__(parent)
+        self.main_window = main_window
+        self.project = main_window.project
         self.setWindowTitle(tr("Настройки"))
         self.setModal(True)
-        self.resize(700, 550)
+        self.resize(600, 500)
         self.setStyleSheet(get_current_theme_style())
 
         self.current_config = config.load_config()
-
         layout = QVBoxLayout(self)
-
         tabs = QTabWidget()
-        tabs.tabBar().setExpanding(False)
         layout.addWidget(tabs)
 
-        # Вкладка "Модели"
+        # ===== Вкладка "Проект" =====
+        project_tab = QWidget()
+        project_layout = QFormLayout(project_tab)
+        
+        self.images_path_edit = QLineEdit()
+        if self.project:
+            self.images_path_edit.setText(self.project.images_dir)
+        else:
+            self.images_path_edit.setPlaceholderText(tr("Проект не открыт"))
+            self.images_path_edit.setEnabled(False)
+            
+        proj_browse = QPushButton(tr("Обзор..."))
+        proj_browse.clicked.connect(self.browse_images_dir)
+        proj_layout = QHBoxLayout()
+        proj_layout.addWidget(self.images_path_edit)
+        proj_layout.addWidget(proj_browse)
+        project_layout.addRow(tr("Папка с изображениями:"), proj_layout)
+        tabs.addTab(project_tab, tr("Проект"))
+
+        # ===== Вкладка "Модели" =====
         model_tab = QWidget()
         model_layout = QFormLayout(model_tab)
 
         self.detector_path_edit = QLineEdit()
-        self.detector_path_edit.setText(self.current_config["detector_path"])
+        self.detector_path_edit.setText(self.current_config.get("detector_path", ""))
         detector_browse = QPushButton(tr("Обзор..."))
         detector_browse.clicked.connect(lambda: self.browse_file(self.detector_path_edit, tr("Выберите файл детектора (*.pt)")))
         detector_layout = QHBoxLayout()
@@ -37,7 +59,7 @@ class SettingsDialog(QDialog):
         model_layout.addRow(tr("Путь к детектору (.pt):"), detector_layout)
 
         self.classifier_path_edit = QLineEdit()
-        self.classifier_path_edit.setText(self.current_config["classifier_path"])
+        self.classifier_path_edit.setText(self.current_config.get("classifier_path", ""))
         classifier_browse = QPushButton(tr("Обзор..."))
         classifier_browse.clicked.connect(lambda: self.browse_file(self.classifier_path_edit, tr("Выберите файл классификатора (*.pt)")))
         classifier_layout = QHBoxLayout()
@@ -48,55 +70,12 @@ class SettingsDialog(QDialog):
         self.cls_conf_spin = QDoubleSpinBox()
         self.cls_conf_spin.setRange(0.0, 1.0)
         self.cls_conf_spin.setSingleStep(0.05)
-        self.cls_conf_spin.setValue(self.current_config["cls_conf"])
+        self.cls_conf_spin.setValue(self.current_config.get("cls_conf", 0.5))
         model_layout.addRow(tr("Confidence:"), self.cls_conf_spin)
 
         tabs.addTab(model_tab, tr("Модели"))
 
-        # Вкладка "Данные"
-        data_tab = QWidget()
-        data_layout = QFormLayout(data_tab)
-
-        self.main_images_dir_edit = QLineEdit()
-        self.main_images_dir_edit.setText(self.current_config["main_images_dir"])
-        main_images_browse = QPushButton(tr("Обзор..."))
-        main_images_browse.clicked.connect(lambda: self.browse_folder(self.main_images_dir_edit, tr("Выберите папку с основными изображениями")))
-        main_images_layout = QHBoxLayout()
-        main_images_layout.addWidget(self.main_images_dir_edit)
-        main_images_layout.addWidget(main_images_browse)
-        data_layout.addRow(tr("Папка с изображениями:"), main_images_layout)
-
-        self.main_json_edit = QLineEdit()
-        self.main_json_edit.setText(self.current_config["main_json"])
-        main_json_browse = QPushButton(tr("Обзор..."))
-        main_json_browse.clicked.connect(lambda: self.browse_file(self.main_json_edit, tr("Выберите файл аннотаций (main.json)"), "*.json"))
-        main_json_layout = QHBoxLayout()
-        main_json_layout.addWidget(self.main_json_edit)
-        main_json_layout.addWidget(main_json_browse)
-        data_layout.addRow(tr("Файл аннотаций:"), main_json_layout)
-
-        self.auto_json_edit = QLineEdit()
-        self.auto_json_edit.setText(self.current_config["auto_json"])
-        auto_json_browse = QPushButton(tr("Обзор..."))
-        auto_json_browse.clicked.connect(lambda: self.browse_file(self.auto_json_edit, tr("Выберите файл авто-аннотаций (auto.json)"), "*.json"))
-        auto_json_layout = QHBoxLayout()
-        auto_json_layout.addWidget(self.auto_json_edit)
-        auto_json_layout.addWidget(auto_json_browse)
-        data_layout.addRow(tr("Авто-файл аннотаций:"), auto_json_layout)
-
-        self.auto_images_dir_edit = QLineEdit()
-        self.auto_images_dir_edit.setText(self.current_config.get("auto_images_dir", ""))
-        self.auto_images_dir_edit.setPlaceholderText(tr("Пусто = совпадает с папкой изображений"))
-        auto_images_browse = QPushButton(tr("Обзор..."))
-        auto_images_browse.clicked.connect(lambda: self.browse_folder(self.auto_images_dir_edit, tr("Выберите папку авто-изображений")))
-        auto_images_layout = QHBoxLayout()
-        auto_images_layout.addWidget(self.auto_images_dir_edit)
-        auto_images_layout.addWidget(auto_images_browse)
-        data_layout.addRow(tr("Папка авто-изображений:"), auto_images_layout)
-
-        tabs.addTab(data_tab, tr("Данные"))
-
-        # Вкладка "Производительность"
+        # ===== Вкладка "Производительность" =====
         perf_tab = QWidget()
         perf_layout = QFormLayout(perf_tab)
 
@@ -116,7 +95,7 @@ class SettingsDialog(QDialog):
 
         tabs.addTab(perf_tab, tr("Производительность"))
 
-        # Вкладка "Интерфейс"
+        # ===== Вкладка "Интерфейс" =====
         ui_tab = QWidget()
         ui_layout = QFormLayout(ui_tab)
 
@@ -142,34 +121,49 @@ class SettingsDialog(QDialog):
 
         # Кнопки OK/Cancel
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
+        button_box.accepted.connect(self.accept_settings)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
+    def browse_images_dir(self):
+        folder = QFileDialog.getExistingDirectory(self, tr("Выберите папку с изображениями"))
+        if folder:
+            self.images_path_edit.setText(os.path.normpath(folder))
+
+    def accept_settings(self):
+        # 1. Если проект открыт, обновляем его путь и СРАЗУ сохраняем файл
+        if self.project:
+            new_path = self.images_path_edit.text()
+            if os.path.exists(new_path): # Проверка на всякий случай
+                self.project.images_dir = new_path
+                self.project.save()
+            else:
+                QMessageBox.warning(self, tr("Ошибка"), tr("Указанный путь не существует!"))
+                return # Прерываем, чтобы не сохранять битый путь
+            
+        # 2. Сохраняем глобальный конфиг
+        new_cfg = self.get_config()
+        config.save_config(new_cfg)
+
+        self.settings_changed.emit()
+        self.accept()
+        
     def browse_file(self, line_edit, title, filter="*.pt *.pth"):
         filename, _ = QFileDialog.getOpenFileName(self, title, "", filter)
         if filename:
             line_edit.setText(filename)
-
-    def browse_folder(self, line_edit, title):
-        folder = QFileDialog.getExistingDirectory(self, title)
-        if folder:
-            line_edit.setText(folder)
 
     def get_config(self):
         return {
             "detector_path": self.detector_path_edit.text(),
             "classifier_path": self.classifier_path_edit.text(),
             "cls_conf": self.cls_conf_spin.value(),
-            "main_images_dir": self.main_images_dir_edit.text(),
-            "main_json": self.main_json_edit.text(),
-            "auto_images_dir": self.auto_images_dir_edit.text().strip(),
-            "auto_json": self.auto_json_edit.text(),
-            "font_path": self.current_config["font_path"],
+            "font_path": self.current_config.get("font_path", ""),
             "thumbnail_cache": self.thumb_cache_check.isChecked(),
             "thumbnail_quality": self.thumb_quality_spin.value(),
             "async_image_loading": self.async_load_check.isChecked(),
             "auto_hide_panel": self.auto_hide_check.isChecked(),
             "theme": self.theme_combo.currentText(),
             "language": self.language_combo.currentData(),
+            "recent_projects": self.current_config.get("recent_projects", [])
         }

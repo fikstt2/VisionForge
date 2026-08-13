@@ -495,49 +495,9 @@ class TrainingWidget(QWidget):
         warn_group.setLayout(warn_inner)
         seg_layout.addWidget(warn_group)
 
-        # Выбор поведения с боксами
-        box_mode_group = QGroupBox(tr("Поведение с bbox-аннотациями при экспорте датасета"))
-        box_mode_layout = QVBoxLayout()
-
-        self.seg_box_exclude = QRadioButton(tr("Исключить боксы из датасета (безопасно, рекомендуется)"))
-        self.seg_box_exclude.setChecked(True)
-        self.seg_box_exclude.setToolTip(tr(
-            "Аннотации без полигона будут пропущены при подготовке датасета. "
-            "Гарантирует корректные маски, но уменьшает объём данных."
-        ))
-
-        self.seg_box_convert = QRadioButton(tr("Конвертировать bbox в прямоугольный полигон"))
-        self.seg_box_convert.setToolTip(tr(
-            "Бокс будет преобразован в полигон из 4 вершин. "
-            "Маска будет прямоугольной — точность ниже, чем при ручной разметке."
-        ))
-
-        self.seg_box_keep = QRadioButton(tr("Использовать боксы как есть (только для опытных)"))
-        self.seg_box_keep.setToolTip(tr(
-            "Оставить аннотации без изменений. Результат непредсказуем."
-        ))
-
-        box_mode_layout.addWidget(self.seg_box_exclude)
-        box_mode_layout.addWidget(self.seg_box_convert)
-        box_mode_layout.addWidget(self.seg_box_keep)
-
-        self.seg_keep_warn = QLabel(
-            "⚠️ " + tr("Внимание: боксы без масок дадут прямоугольные сегменты. "
-                        "Качество сегментации будет очень низким.")
-        )
-        self.seg_keep_warn.setWordWrap(True)
-        self.seg_keep_warn.setStyleSheet("color: #e09020; font-style: italic; padding-left: 20px;")
-        self.seg_keep_warn.setVisible(False)
-        box_mode_layout.addWidget(self.seg_keep_warn)
-
-        self.seg_box_keep.toggled.connect(self.seg_keep_warn.setVisible)
-
-        box_mode_group.setLayout(box_mode_layout)
-        seg_layout.addWidget(box_mode_group)
-
         hint_label = QLabel(
-            "💡 " + tr("Эти настройки применяются при подготовке датасета. "
-                       "Во время обучения VisionForge использует готовый data.yaml.")
+            "💡 " + tr("Настройки обработки bbox-аннотаций при сегментации "
+                       "находятся в диалоге Подготовка датасета.")
         )
         hint_label.setWordWrap(True)
         hint_label.setStyleSheet("color: #80a0c0; font-size: 9pt; padding: 4px;")
@@ -836,15 +796,6 @@ class TrainingWidget(QWidget):
         # Параметры аугментации
         for name, widget in self.aug_widgets.items():
             params[name] = widget.value()
-
-        # Режим обработки боксов для сегментации
-        if self.task_segment.isChecked():
-            if self.seg_box_convert.isChecked():
-                params['seg_box_mode'] = 'convert'
-            elif self.seg_box_keep.isChecked():
-                params['seg_box_mode'] = 'keep'
-            else:
-                params['seg_box_mode'] = 'exclude'
 
         return params
 

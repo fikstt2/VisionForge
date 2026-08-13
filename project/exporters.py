@@ -20,7 +20,7 @@ def export_yolo(project, output_dir):
     class_to_id = {cls: i for i, cls in enumerate(project.classes)}
 
     for filename in project.images_list:
-        boxes = project.get_annotations(filename)
+        boxes = project.get_annotations(filename, mode='main')
         if not boxes:
             continue
         img_path = os.path.join(images_dir, filename)
@@ -92,7 +92,7 @@ def export_coco(project, output_file):
             "date_captured": ""
         })
 
-        boxes = project.get_annotations(filename)
+        boxes = project.get_annotations(filename, mode='main')
         for box in boxes:
             cls_name = box["class"]
             if cls_name not in class_to_id:
@@ -134,7 +134,7 @@ def export_voc(project, output_dir):
             continue
         h, w, d = img.shape
 
-        boxes = project.get_annotations(filename)
+        boxes = project.get_annotations(filename, mode='main')
         annotation = ET.Element("annotation")
         ET.SubElement(annotation, "folder").text = os.path.basename(output_dir)
         ET.SubElement(annotation, "filename").text = filename

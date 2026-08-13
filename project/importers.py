@@ -37,19 +37,35 @@ def import_yolo(folder):
             with open(txt_path, 'r') as f:
                 for line in f:
                     parts = line.strip().split()
-                    if len(parts) != 5:
+                    if len(parts) < 5:
                         continue
                     cls_id = int(parts[0])
-                    x_center = float(parts[1]) * w
-                    y_center = float(parts[2]) * h
-                    box_w = float(parts[3]) * w
-                    box_h = float(parts[4]) * h
-                    x1 = int(x_center - box_w / 2)
-                    y1 = int(y_center - box_h / 2)
-                    x2 = int(x_center + box_w / 2)
-                    y2 = int(y_center + box_h / 2)
                     class_name = classes[cls_id] if cls_id < len(classes) else f"class_{cls_id}"
-                    boxes.append({"bbox": [x1, y1, x2, y2], "class": class_name})
+
+                    if len(parts) == 5:
+                        # Detection format: cls cx cy w h (normalized)
+                        x_center = float(parts[1]) * w
+                        y_center = float(parts[2]) * h
+                        box_w = float(parts[3]) * w
+                        box_h = float(parts[4]) * h
+                        x1 = int(x_center - box_w / 2)
+                        y1 = int(y_center - box_h / 2)
+                        x2 = int(x_center + box_w / 2)
+                        y2 = int(y_center + box_h / 2)
+                        boxes.append({"bbox": [x1, y1, x2, y2], "class": class_name})
+                    elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                        # Segmentation format: cls x1 y1 x2 y2 ... (normalized polygon)
+                        coords = [float(v) for v in parts[1:]]
+                        polygon = []
+                        for i in range(0, len(coords), 2):
+                            px = int(coords[i] * w)
+                            py = int(coords[i + 1] * h)
+                            polygon.append([px, py])
+                        if polygon:
+                            xs = [p[0] for p in polygon]
+                            ys = [p[1] for p in polygon]
+                            bbox = [min(xs), min(ys), max(xs), max(ys)]
+                            boxes.append({"bbox": bbox, "polygon": polygon, "class": class_name})
             if boxes:
                 annotations[filename] = boxes
     # Собираем все уникальные классы из аннотаций, если classes.txt не полный
@@ -86,6 +102,11 @@ def import_coco(json_path):
         cat_id = ann['category_id']
         class_name = categories.get(cat_id, 'unknown')
         box = {"bbox": [int(x), int(y), int(x2), int(y2)], "class": class_name}
+        seg = ann.get("segmentation")
+        if isinstance(seg, list) and len(seg) > 0 and isinstance(seg[0], list) and len(seg[0]) >= 6:
+            pts = seg[0]
+            polygon = [[int(pts[i]), int(pts[i+1])] for i in range(0, len(pts), 2)]
+            box["polygon"] = polygon
         annotations.setdefault(filename, []).append(box)
 
     classes = list(categories.values())

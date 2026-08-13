@@ -4,8 +4,8 @@ import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QToolButton, QStyle, QListWidget, QListWidgetItem,
                              QListView, QDialog, QAbstractItemView)
-from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QIcon, QColor
+from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal
+from PyQt5.QtGui import QIcon
 
 class ThumbnailBar(QWidget):
     image_selected = pyqtSignal(str)
@@ -69,16 +69,20 @@ class ThumbnailBar(QWidget):
         self.content_layout.addWidget(self.scroll_left_btn)
 
         # Список миниатюр
+        THUMB_W = 148
+        THUMB_H = 102
         self.list_widget = QListWidget()
         self.list_widget.setViewMode(QListWidget.IconMode)
         self.list_widget.setFlow(QListWidget.LeftToRight)
         self.list_widget.setWrapping(False)
-        self.list_widget.setIconSize(QSize(140, 90))
-        self.list_widget.setGridSize(QSize(150, 105))
+        # iconSize = gridSize: иконка заполняет всю ячейку — нет некликабельных зазоров
+        self.list_widget.setIconSize(QSize(THUMB_W, THUMB_H))
+        self.list_widget.setGridSize(QSize(THUMB_W + 4, THUMB_H + 4))
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_widget.setResizeMode(QListWidget.Adjust)
         self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list_widget.setSpacing(0)  # spacing=0: нет зазоров между ячейками
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background: transparent;
@@ -87,8 +91,8 @@ class ThumbnailBar(QWidget):
             }
             QListWidget::item {
                 border: 2px solid transparent;
-                border-radius: 6px;
-                padding: 2px;
+                border-radius: 4px;
+                padding: 0px;
                 margin: 1px;
             }
             QListWidget::item:selected {
@@ -100,9 +104,12 @@ class ThumbnailBar(QWidget):
                 background-color: rgba(63, 63, 70, 80);
             }
         """)
-        self.list_widget.setSpacing(2)
         self.list_widget.setMovement(QListView.Static)
+        # itemClicked срабатывает только на иконке — заменяем на viewport mousePressEvent
         self.list_widget.itemClicked.connect(self.on_item_clicked)
+        self.list_widget.itemActivated.connect(self.on_item_clicked)  # двойной клик / Enter
+        # Перехватываем нажатие на viewport: любой пиксель ячейки — клик
+        self.list_widget.viewport().installEventFilter(self)
         self.content_layout.addWidget(self.list_widget)
 
         # Кнопка «→» для прокрутки вперёд
@@ -174,7 +181,6 @@ class ThumbnailBar(QWidget):
             self.content_widget.show()
             self.collapse_btn.setText("▲")
             self.setFixedHeight(130)
-            # Загружаем миниатюры при раскрытии
             QTimer.singleShot(50, self.load_visible_thumbnails)
 
     def _on_scroll(self):
@@ -193,29 +199,24 @@ class ThumbnailBar(QWidget):
         sb = self.list_widget.horizontalScrollBar()
         sb.setValue(sb.value() - delta)
         event.accept()
-        # Запускаем загрузку сразу после прокрутки
         self.scroll_timer.start(80)
 
     def resizeEvent(self, event):
-        """При изменении размера окна перезагружаем видимые миниатюры."""
         super().resizeEvent(event)
         if not self.is_collapsed:
             self.scroll_timer.start(150)
 
     def showEvent(self, event):
-        """При первом показе загружаем миниатюры."""
         super().showEvent(event)
         self._initial_load_timer.start(100)
 
     def load_visible_thumbnails(self):
-        """Загружает миниатюры для видимых элементов + буфер."""
         if self.main_window is None:
             return
         list_widget = self.list_widget
         if list_widget.count() == 0:
             return
 
-        # Определяем видимую область через viewport
         viewport_rect = list_widget.viewport().rect()
         start_idx = None
         end_idx = None
@@ -235,21 +236,18 @@ class ThumbnailBar(QWidget):
         if start_idx is None:
             return
 
-        # Буфер: загружаем 5 элементов до и после видимой области
         buffer = 5
         start = max(0, start_idx - buffer)
         end = min(list_widget.count(), end_idx + buffer + 1)
 
-        # Загружаем видимые
         for i in range(start, end):
             item = list_widget.item(i)
             if item and item.icon().isNull():
                 filename = item.data(Qt.UserRole)
-                pixmap = self.main_window.load_thumbnail_disk(filename)
+                pixmap = self.main_window.generate_thumbnail(filename)
                 if pixmap:
                     item.setIcon(QIcon(pixmap))
 
-        # Выгружаем далёкие (экономия памяти)
         for i in range(list_widget.count()):
             if i < start or i >= end:
                 item = list_widget.item(i)
@@ -260,7 +258,6 @@ class ThumbnailBar(QWidget):
         item = QListWidgetItem()
         item.setData(Qt.UserRole, filename)
         item.setIcon(QIcon())
-        # Bug #13 fix: 'base' was computed but never used — removed dead code
         item.setToolTip(os.path.basename(filename))
         self.list_widget.addItem(item)
 
@@ -268,31 +265,54 @@ class ThumbnailBar(QWidget):
         self.list_widget.clear()
         self._current_filename = None
 
+    def invalidate_item(self, filename):
+        """Сбрасывает иконку элемента и немедленно перегенерирует миниатюру."""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item and item.data(Qt.UserRole) == filename:
+                item.setIcon(QIcon())  # сбрасываем — load_visible_thumbnails перерисует
+                break
+        self.load_visible_thumbnails()
+
     def set_current(self, filename):
-        """Подсвечивает текущее изображение в карусели и прокручивает к нему."""
         self._current_filename = filename
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             if item.data(Qt.UserRole) == filename:
                 self.list_widget.setCurrentItem(item)
                 self.list_widget.scrollToItem(item, QAbstractItemView.PositionAtCenter)
-                # Загружаем миниатюры вокруг текущей позиции
                 QTimer.singleShot(50, self.load_visible_thumbnails)
                 return
 
     def open_gallery(self):
         if self.main_window is None:
             return
-        classes = self.main_window.current_project.classes
-        filenames = [self.list_widget.item(i).data(Qt.UserRole) for i in range(self.list_widget.count())]
+            
+        # Адаптировано под новый монолитный формат проекта
+        classes = self.main_window.project.classes
+        filenames = self.main_window.filtered_images
+        
         from core.gallery_dialog import GalleryDialog
+        
+        # Передаем self (parent) ПЕРВЫМ аргументом, затем список файлов и моделей
         dialog = GalleryDialog(self, filenames, classes, self.main_window)
         if dialog.exec_() == QDialog.Accepted:
             selected = dialog.get_selected()
             if selected:
-                self.image_selected.emit(selected[0])
+                self.main_window.load_image_by_name(selected[0])
 
     def on_item_clicked(self, item):
         filename = item.data(Qt.UserRole)
         if filename:
             self.image_selected.emit(filename)
+
+    def eventFilter(self, source, event):
+        """Перехватываем клики на viewport карусели — любой пиксель ячейки кликабелен."""
+        from PyQt5.QtCore import QEvent
+        if source is self.list_widget.viewport() and event.type() == QEvent.MouseButtonPress:
+            item = self.list_widget.itemAt(event.pos())
+            if item is not None:
+                self.list_widget.setCurrentItem(item)
+                self.on_item_clicked(item)
+                return True  # событие обработано, дальше не пропускаем
+        return super().eventFilter(source, event)

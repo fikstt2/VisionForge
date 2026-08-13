@@ -11,23 +11,25 @@ class ImportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("Импорт аннотаций"))
         self.setModal(True)
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(520)
         self.setStyleSheet(get_current_theme_style())
 
         self.result_data = None
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
 
-        # Формат
+        # ── Формат ──────────────────────────────────────────────
         fmt_layout = QHBoxLayout()
         fmt_layout.addWidget(QLabel(tr("Формат:")))
         self.format_combo = QComboBox()
-        self.format_combo.addItems([tr("YOLO"), tr("COCO"), tr("Pascal VOC")])
+        self.format_combo.addItems(["YOLO", "COCO", "Pascal VOC"])
+        self.format_combo.currentTextChanged.connect(self._on_format_changed)
         fmt_layout.addWidget(self.format_combo)
         fmt_layout.addStretch()
         layout.addLayout(fmt_layout)
 
-        # Источник
+        # ── Источник ─────────────────────────────────────────────
         src_layout = QHBoxLayout()
         src_layout.addWidget(QLabel(tr("Источник:")))
         self.source_edit = QLineEdit()
@@ -38,18 +40,22 @@ class ImportDialog(QDialog):
         src_layout.addWidget(self.browse_btn)
         layout.addLayout(src_layout)
 
-        # Действие
-        action_group = QGroupBox(tr("Действие"))
-        action_layout = QHBoxLayout()
-        self.add_radio = QRadioButton(tr("Добавить к текущему проекту"))
-        self.new_radio = QRadioButton(tr("Создать новый проект"))
-        self.add_radio.setChecked(True)
-        action_layout.addWidget(self.add_radio)
-        action_layout.addWidget(self.new_radio)
-        action_group.setLayout(action_layout)
-        layout.addWidget(action_group)
+        self.hint_label = QLabel(tr("YOLO: папка содержащая labels/ и classes.txt"))
+        self.hint_label.setStyleSheet("color: #71717a; font-size: 11px;")
+        layout.addWidget(self.hint_label)
 
-        # Кнопки
+        # ── Конфликты ────────────────────────────────────────────
+        conflict_group = QGroupBox(tr("При совпадении аннотаций"))
+        conflict_layout = QHBoxLayout()
+        self.merge_radio = QRadioButton(tr("Объединить (добавить к существующим)"))
+        self.overwrite_radio = QRadioButton(tr("Заменить существующие"))
+        self.merge_radio.setChecked(True)
+        conflict_layout.addWidget(self.merge_radio)
+        conflict_layout.addWidget(self.overwrite_radio)
+        conflict_group.setLayout(conflict_layout)
+        layout.addWidget(conflict_group)
+
+        # ── Кнопки ───────────────────────────────────────────────
         btn_layout = QHBoxLayout()
         self.import_btn = QPushButton(tr("Импортировать"))
         self.import_btn.clicked.connect(self.do_import)
@@ -60,14 +66,25 @@ class ImportDialog(QDialog):
         btn_layout.addWidget(self.cancel_btn)
         layout.addLayout(btn_layout)
 
+    def _on_format_changed(self, fmt):
+        hints = {
+            "YOLO":       tr("YOLO: папка содержащая labels/ и classes.txt"),
+            "COCO":       tr("COCO: JSON-файл с аннотациями"),
+            "Pascal VOC": tr("Pascal VOC: папка с XML-файлами"),
+        }
+        self.hint_label.setText(hints.get(fmt, ""))
+
     def browse(self):
         fmt = self.format_combo.currentText()
         if fmt == "COCO":
-            path, _ = QFileDialog.getOpenFileName(self, tr("Выберите COCO JSON"), "", "JSON files (*.json)")
+            path, _ = QFileDialog.getOpenFileName(
+                self, tr("Выберите COCO JSON"), "", "JSON files (*.json)")
         elif fmt == "Pascal VOC":
-            path = QFileDialog.getExistingDirectory(self, tr("Выберите папку с XML-файлами"))
+            path = QFileDialog.getExistingDirectory(
+                self, tr("Выберите папку с XML-файлами"))
         else:
-            path = QFileDialog.getExistingDirectory(self, tr("Выберите корневую папку (с images и labels)"))
+            path = QFileDialog.getExistingDirectory(
+                self, tr("Выберите корневую папку YOLO (с labels/ и classes.txt)"))
         if path:
             self.source_edit.setText(path)
 
@@ -86,12 +103,14 @@ class ImportDialog(QDialog):
             else:
                 data, classes = import_voc(source)
         except Exception as e:
-            QMessageBox.critical(self, tr("Ошибка импорта"), f"{tr('Не удалось импортировать')}:\n{str(e)}")
+            QMessageBox.critical(
+                self, tr("Ошибка импорта"),
+                f"{tr('Не удалось импортировать')}:\n{str(e)}")
             return
 
         if not data:
             QMessageBox.information(self, tr("Импорт"), tr("Не найдено аннотаций."))
             return
 
-        self.result_data = (data, classes)
+        self.result_data = (data, classes, self.merge_radio.isChecked())
         self.accept()

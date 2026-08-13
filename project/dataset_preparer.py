@@ -7,21 +7,9 @@ from collections import defaultdict
 
 def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.2, test_ratio=0.0,
                               class_mapping=None, excluded_classes=None, task_type='detection',
-                              seg_box_mode='exclude', progress_callback=None):
+                              seg_box_mode='exclude', mode='main', progress_callback=None):
     """
-    Подготавливает датасет для детекции / сегментации в формате YOLO.
-
-    :param project: объект Project (с полями images_dir, annotations, classes)
-    :param output_dir: корневая папка для датасета
-    :param train_ratio: доля train
-    :param val_ratio: доля val
-    :param test_ratio: доля test (если 0, test не создаётся)
-    :param class_mapping: словарь {старое_имя: новое_имя} для объединения классов
-    :param excluded_classes: множество исходных классов, которые полностью исключаются
-    :param seg_box_mode: поведение с bbox-аннотациями при сегментации:
-        'exclude' — пропустить бокс без полигона (default, рекомендуется)
-        'convert' — преобразовать bbox в прямоугольный полигон из 4 вершин
-        'keep'    — использовать bbox как есть (только для опытных)
+    Подготавливает датасет для детекции / сегментации в формате YOLO с учетом выбранного режима разметки.
     """
     if class_mapping is None:
         class_mapping = {}
@@ -38,12 +26,13 @@ def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.
     new_classes = sorted(new_classes_set)
     new_class_to_id = {cls: idx for idx, cls in enumerate(new_classes)}
 
-    # Собираем все изображения, у которых есть аннотации, и фильтруем боксы
+    # Собираем все изображения, у которых есть аннотации в выбранном РЕЖИМЕ (main/auto), и фильтруем боксы
     valid_images = []
     image_valid_boxes = {}  # img_name -> list of valid boxes (after mapping & exclusion)
 
     for img_name in project.images_list:
-        boxes = project.get_annotations(img_name)
+        # ИСПРАВЛЕНО: передаем параметр mode, чтобы разделять ручную разметку и предсказания ИИ
+        boxes = project.get_annotations(img_name, mode=mode)
         if not boxes:
             continue
         valid_boxes = []
@@ -53,9 +42,7 @@ def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.
                 continue
             new_cls = class_mapping.get(old_cls, old_cls)
             if new_cls not in new_class_to_id:
-                # такого не должно быть, но на всякий случай пропускаем
                 continue
-            # преобразуем класс
             box_copy = box.copy()
             box_copy['class'] = new_cls
             valid_boxes.append(box_copy)
@@ -113,21 +100,17 @@ def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.
                     cls_name = box['class']
                     cls_id = new_class_to_id[cls_name]
                     if task_type == 'segmentation':
-                        # Bug #3 fix: handle seg_box_mode correctly
                         has_polygon = 'polygon' in box and box['polygon']
                         has_bbox = 'bbox' in box
                         if has_polygon:
                             pts = box['polygon']
                         elif has_bbox and seg_box_mode == 'convert':
-                            # Convert bbox to 4-point rectangular polygon
                             x1, y1, x2, y2 = box['bbox']
                             pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
                         elif has_bbox and seg_box_mode == 'keep':
-                            # Use bbox corners as degenerate polygon
                             x1, y1, x2, y2 = box['bbox']
                             pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
                         else:
-                            # 'exclude' or no usable data — skip this annotation
                             continue
                         coords = []
                         for pt in pts:
@@ -135,9 +118,7 @@ def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.
                             coords.append(f"{pt[1] / h:.6f}")
                         f.write(f"{cls_id} {' '.join(coords)}\n")
                     else:
-                        # Детекция: всегда записываем bbox (даже если есть полигон)
                         if 'bbox' not in box:
-                            # Derive bbox from polygon if available
                             if 'polygon' in box and box['polygon']:
                                 xs = [p[0] for p in box['polygon']]
                                 ys = [p[1] for p in box['polygon']]
@@ -155,7 +136,7 @@ def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.
     # Создаём data.yaml
     yaml_path = os.path.join(output_dir, 'data.yaml')
     with open(yaml_path, 'w', encoding='utf-8') as f:
-        f.write(f"path: {output_dir}\n")
+        f.write(f"path: {os.path.abspath(output_dir)}\n")
         f.write(f"train: images/train\n")
         f.write(f"val: images/val\n")
         if test_images:
@@ -168,29 +149,14 @@ def prepare_detection_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.
 
 def prepare_classification_dataset(project, output_dir, train_ratio=0.8, val_ratio=0.2, test_ratio=0.0,
                                    class_mapping=None, excluded_classes=None,
-                                   crop_boxes=True, multiple_boxes_handling='first',
+                                   crop_boxes=True, multiple_boxes_handling='first', mode='main',
                                    progress_callback=None):
-    """
-    Подготавливает датасет для классификации.
-
-    :param project: объект Project
-    :param output_dir: корневая папка для датасета
-    :param train_ratio, val_ratio, test_ratio: пропорции выборок
-    :param class_mapping: словарь {старое_имя: новое_имя} для объединения классов
-    :param excluded_classes: множество исходных классов, которые исключаются
-    :param crop_boxes: если True, каждый бокс вырезается и сохраняется как отдельное изображение.
-                       Если False, сохраняется целое изображение, а класс определяется по первому неисключённому боксу.
-    :param multiple_boxes_handling: как поступать при нескольких боксах на изображении (если crop_boxes=False):
-        'first' - использовать класс первого неисключённого бокса,
-        'skip' - пропускать такие изображения,
-        'warn' - использовать первый и выдавать предупреждение.
-    """
+    """Подготавливает датасет для классификации."""
     if class_mapping is None:
         class_mapping = {}
     if excluded_classes is None:
         excluded_classes = set()
 
-    # Определяем новый список классов (уникальные значения mapping + оставшиеся старые, кроме исключённых)
     new_classes_set = set()
     for old_cls in project.classes:
         if old_cls in excluded_classes:
@@ -201,11 +167,11 @@ def prepare_classification_dataset(project, output_dir, train_ratio=0.8, val_rat
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # Если crop_boxes=True, то каждый неисключённый бокс становится отдельным образцом
     if crop_boxes:
-        samples = []  # список кортежей (img_data, class_name, out_name)
+        samples = []
         for img_name in project.images_list:
-            boxes = project.get_annotations(img_name)
+            # ИСПРАВЛЕНО: Считываем аннотации с учётом переданного режима (main/auto)
+            boxes = project.get_annotations(img_name, mode=mode)
             if not boxes:
                 continue
             src_img = os.path.join(project.images_dir, img_name)
@@ -218,24 +184,21 @@ def prepare_classification_dataset(project, output_dir, train_ratio=0.8, val_rat
                     continue
                 base, ext = os.path.splitext(img_name)
                 crop_name = f"{base}_{new_cls}_{idx}{ext}"
-                # Сохраняем путь и координаты бокса вместо самого изображения
                 samples.append(((src_img, box['bbox']), new_cls, crop_name))
     else:
-        # Работаем с целыми изображениями
-        samples = []  # список кортежей (img_path, class_name, out_name)
+        samples = []
         skipped_no_boxes = 0
         skipped_multiple = 0
         for img_name in project.images_list:
-            boxes = project.get_annotations(img_name)
+            # ИСПРАВЛЕНО: Считываем аннотации с учётом переданного режима (main/auto)
+            boxes = project.get_annotations(img_name, mode=mode)
             if not boxes:
                 skipped_no_boxes += 1
                 continue
-            # Отфильтровываем исключённые классы
             valid_boxes = [box for box in boxes if box['class'] not in excluded_classes]
             if not valid_boxes:
                 skipped_no_boxes += 1
                 continue
-            # Определяем класс
             src_img = os.path.join(project.images_dir, img_name)
             if len(valid_boxes) == 1:
                 old_cls = valid_boxes[0]['class']
@@ -249,34 +212,26 @@ def prepare_classification_dataset(project, output_dir, train_ratio=0.8, val_rat
                 elif multiple_boxes_handling in ('first', 'warn'):
                     old_cls = valid_boxes[0]['class']
                     new_cls = class_mapping.get(old_cls, old_cls)
-                    if multiple_boxes_handling == 'warn':
-                        print(f"Предупреждение: изображение {img_name} содержит {len(valid_boxes)} неисключённых боксов, использован класс {new_cls}")
                     src_img = os.path.join(project.images_dir, img_name)
                     samples.append((src_img, new_cls, img_name))
-                else:
-                    raise ValueError(f"Неизвестное multiple_boxes_handling: {multiple_boxes_handling}")
 
     if not samples:
         raise ValueError("Нет подходящих образцов для классификации.")
 
-    # Группируем по классам для стратификации
     class_to_samples = defaultdict(list)
     for sample, cls, name in samples:
         class_to_samples[cls].append((sample, name))
 
-    # Перемешиваем внутри классов
     for cls in class_to_samples:
         random.shuffle(class_to_samples[cls])
 
-    # Функция разбиения списка
     def split_list(lst, train_ratio, val_ratio):
         n = len(lst)
         train_end = int(n * train_ratio)
         val_end = train_end + int(n * val_ratio)
         return lst[:train_end], lst[train_end:val_end], lst[val_end:]
 
-    # Распределяем по выборкам
-    train_samples = []  # (sample, cls, name)
+    train_samples = []
     val_samples = []
     test_samples = []
 
@@ -286,12 +241,10 @@ def prepare_classification_dataset(project, output_dir, train_ratio=0.8, val_rat
         val_samples.extend([(s, cls, n) for s, n in val])
         test_samples.extend([(s, cls, n) for s, n in test])
 
-    # Перемешиваем итоговые списки
     random.shuffle(train_samples)
     random.shuffle(val_samples)
     random.shuffle(test_samples)
 
-    # Создаём структуру папок
     subsets = [('train', train_samples), ('val', val_samples)]
     if test_samples:
         subsets.append(('test', test_samples))
@@ -309,9 +262,9 @@ def prepare_classification_dataset(project, output_dir, train_ratio=0.8, val_rat
             os.makedirs(class_dir, exist_ok=True)
             dst_path = os.path.join(class_dir, name)
             
-            if isinstance(sample, str):  # путь к полному изображению
+            if isinstance(sample, str):
                 shutil.copy2(sample, dst_path)
-            elif isinstance(sample, tuple):  # (путь, bbox) для кропа
+            elif isinstance(sample, tuple):
                 src_path, (x1, y1, x2, y2) = sample
                 img = cv2.imread(src_path)
                 if img is not None:
@@ -319,7 +272,6 @@ def prepare_classification_dataset(project, output_dir, train_ratio=0.8, val_rat
                     if crop.size > 0:
                         cv2.imwrite(dst_path, crop)
 
-    # Создаём файл с классами
     classes_txt = os.path.join(output_dir, 'classes.txt')
     with open(classes_txt, 'w', encoding='utf-8') as f:
         f.write("\n".join(new_classes))

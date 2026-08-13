@@ -1,18 +1,10 @@
 # ui/statistics_dialog.py
-
-import csv
-from collections import Counter
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QFileDialog, QMessageBox, QTextEdit,
-                             QGroupBox, QGridLayout, QTabWidget, QWidget)
-
-from PyQt5.QtGui import QFont
-import matplotlib
-matplotlib.use('Qt5Agg')
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+                             QGroupBox, QTableWidget, QTableWidgetItem, 
+                             QHeaderView, QPushButton)
+from PyQt5.QtCore import Qt
 from ui.theme import get_current_theme_style
+from collections import defaultdict
 from core.i18n import tr
 
 class StatisticsDialog(QDialog):
@@ -20,174 +12,125 @@ class StatisticsDialog(QDialog):
         super().__init__(parent)
         self.project = project
         self.setWindowTitle(tr("Статистика проекта"))
-        self.setModal(True)
-        self.setMinimumSize(900, 700)
+        self.setMinimumSize(650, 500)
         self.setStyleSheet(get_current_theme_style())
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
-        tabs = QTabWidget()
-        tabs.tabBar().setExpanding(False)
-        layout.addWidget(tabs)
-
-        # --- Вкладка "Общая статистика" ---
-        general_tab = QWidget()
-        general_layout = QVBoxLayout(general_tab)
-
-        info_group = QGroupBox(tr("Общая информация"))
-        info_layout = QGridLayout()
-
+        # ===== Сбор метрик по монолитному ядру =====
         total_images = len(self.project.images_list)
-        annotated_images = sum(1 for f in self.project.images_list if f in self.project.annotations)
-        total_boxes = sum(len(boxes) for boxes in self.project.annotations.values())
-        unique_classes = len(self.project.classes)
-
-        info_layout.addWidget(QLabel(tr("Всего изображений:")), 0, 0)
-        info_layout.addWidget(QLabel(str(total_images)), 0, 1)
-        info_layout.addWidget(QLabel(tr("Изображений с разметкой:")), 1, 0)
-        info_layout.addWidget(QLabel(str(annotated_images)), 1, 1)
-        info_layout.addWidget(QLabel(tr("Всего боксов:")), 2, 0)
-        info_layout.addWidget(QLabel(str(total_boxes)), 2, 1)
-        info_layout.addWidget(QLabel(tr("Уникальных классов:")), 3, 0)
-        info_layout.addWidget(QLabel(str(unique_classes)), 3, 1)
-
-        info_group.setLayout(info_layout)
-        general_layout.addWidget(info_group)
-
-        class_stats_group = QGroupBox(tr("Статистика по классам"))
-        class_stats_layout = QVBoxLayout()
-
-        self.class_stats_text = QTextEdit()
-        self.class_stats_text.setReadOnly(True)
-        self.class_stats_text.setFont(QFont("Courier New", 10))
-        class_stats_layout.addWidget(self.class_stats_text)
-
-        class_stats_group.setLayout(class_stats_layout)
-        general_layout.addWidget(class_stats_group)
-
-        tabs.addTab(general_tab, tr("Общая"))
-
-        # --- Вкладка "Распределение классов" ---
-        dist_tab = QWidget()
-        dist_layout = QVBoxLayout(dist_tab)
-
-        self.figure = Figure(figsize=(8, 5))
-        self.canvas = FigureCanvas(self.figure)
-        dist_layout.addWidget(self.canvas)
-
-        tabs.addTab(dist_tab, tr("График"))
-
-        # --- Вкладка "Рекомендации" ---
-        rec_tab = QWidget()
-        rec_layout = QVBoxLayout(rec_tab)
-
-        self.rec_text = QTextEdit()
-        self.rec_text.setReadOnly(True)
-        self.rec_text.setFont(QFont("Arial", 11))
-        rec_layout.addWidget(self.rec_text)
-
-        tabs.addTab(rec_tab, tr("Рекомендации"))
-
-        # Кнопка экспорта в CSV
-        btn_layout = QHBoxLayout()
-        self.export_btn = QPushButton(tr("Экспорт в CSV"))
-        self.export_btn.clicked.connect(self.export_csv)
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.export_btn)
-        layout.addLayout(btn_layout)
-
-        self.update_statistics()
-
-    def update_statistics(self):
-        box_counter = Counter()
-        for boxes in self.project.annotations.values():
-            for box in boxes:
-                box_counter[box['class']] += 1
-
-        # Формируем текст статистики по классам
-        lines = []
-        lines.append(f"{tr('Класс'):<25} | {tr('Количество'):<10} | {tr('Процент'):<8}")
-        lines.append("-" * 50)
         
-        total_boxes = sum(box_counter.values())
-        for cls_name in sorted(self.project.classes):
-            cnt = box_counter.get(cls_name, 0)
-            percent = (cnt / total_boxes * 100) if total_boxes > 0 else 0
-            lines.append(f"{cls_name:<25} | {cnt:<10} | {percent:>7.1f}%")
+        annotated_by_user = sum(1 for f in self.project.images_list if len(self.project.get_annotations(f, 'main')) > 0)
+        annotated_by_ai = sum(1 for f in self.project.images_list if len(self.project.get_annotations(f, 'main')) == 0 and len(self.project.get_annotations(f, 'auto')) > 0)
+        unannotated_images = total_images - annotated_by_user - annotated_by_ai
+
+        # Считаем объекты раздельно по режимам
+        class_main_counts = defaultdict(int)
+        class_auto_counts = defaultdict(int)
+        all_seen_classes = set(self.project.classes) # Базовые классы проекта
+
+        total_main_objects = 0
+        total_auto_objects = 0
         
-        self.class_stats_text.setText("\n".join(lines))
-
-        # Обновляем график
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        if box_counter:
-            labels = list(box_counter.keys())
-            values = list(box_counter.values())
-            ax.bar(labels, values, color='#2e7d32')
-            ax.set_title(tr("Распределение классов"), color='white')
-            ax.set_xlabel(tr("Класс"), color='white')
-            ax.set_ylabel(tr("Количество боксов"), color='white')
-            ax.tick_params(colors='white')
-            # Поворачиваем метки если их много
-            if len(labels) > 5:
-                ax.set_xticklabels(labels, rotation=45, ha='right')
-        else:
-            ax.text(0.5, 0.5, tr("Нет данных для отображения"), 
-                   ha='center', va='center', color='white')
-        
-        self.figure.tight_layout()
-        self.canvas.draw()
-
-        # Рекомендации
-        self.generate_recommendations(box_counter)
-
-    def generate_recommendations(self, box_counter):
-        recs = []
-        total_boxes = sum(box_counter.values())
-        
-        if total_boxes == 0:
-            recs.append(f"• {tr('Начните разметку изображений, чтобы получить рекомендации.')}")
-        else:
-            # Дисбаланс классов
-            counts = list(box_counter.values())
-            if counts:
-                min_cnt = min(counts)
-                max_cnt = max(counts)
-                if max_cnt > min_cnt * 3:
-                    recs.append(f"• {tr('Обнаружен значительный дисбаланс классов. Рекомендуется добавить больше примеров для редких классов.')}")
-            
-            # Мало данных
-            for cls_name, cnt in box_counter.items():
-                if cnt < 50:
-                    recs.append(f"• {tr('Для класса')} '{cls_name}' {tr('собрано менее 50 примеров. Этого может быть недостаточно для качественного обучения.')}")
-
-            # Рекомендация по аугментации
-            if total_boxes < 1000:
-                recs.append(f"• {tr('Общий объем данных невелик. Используйте более агрессивную аугментацию при обучении.')}")
-
-        if not recs:
-            recs.append(f"• {tr('Датасет выглядит сбалансированным. Продолжайте в том же духе!')}")
-
-        self.rec_text.setText("\n\n".join(recs))
-
-    def export_csv(self):
-        filename, _ = QFileDialog.getSaveFileName(self, tr("Сохранить статистику"), "", "CSV Files (*.csv)")
-        if filename:
-            try:
-                box_counter = Counter()
-                for boxes in self.project.annotations.values():
-                    for box in boxes:
-                        box_counter[box['class']] += 1
-
-                with open(filename, 'w', encoding='utf-8', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([tr("Класс"), tr("Количество"), tr("Процент")])
-                    total_boxes = sum(box_counter.values())
-                    for cls_name in sorted(self.project.classes):
-                        cnt = box_counter.get(cls_name, 0)
-                        percent = (cnt / total_boxes * 100) if total_boxes > 0 else 0
-                        writer.writerow([cls_name, cnt, f"{percent:.2f}%"])
+        for f in self.project.images_list:
+            # Ручная разметка
+            for box in self.project.get_annotations(f, 'main'):
+                cls = box.get('class', 'unknown')
+                class_main_counts[cls] += 1
+                all_seen_classes.add(cls)
+                total_main_objects += 1
                 
-                QMessageBox.information(self, tr("Экспорт завершен"), tr("Статистика успешно экспортирована в CSV"))
-            except Exception as e:
-                QMessageBox.critical(self, tr("Ошибка"), f"{tr('Не удалось экспортировать данные')}: {str(e)}")
+            # Авторазметка ИИ
+            for box in self.project.get_annotations(f, 'auto'):
+                cls = box.get('class', 'unknown')
+                class_auto_counts[cls] += 1
+                all_seen_classes.add(cls)
+                total_auto_objects += 1
+
+        # ===== Общая сводка =====
+        summary_group = QGroupBox(tr("Сводка по изображениям"))
+        summary_layout = QVBoxLayout(summary_group)
+        summary_layout.setSpacing(6)
+
+        summary_layout.addWidget(QLabel(f"{tr('Всего изображений в папке')}: <b>{total_images}</b>"))
+        summary_layout.addWidget(QLabel(f"{tr('Утверждено вручную (Основной режим)')}: <b style='color: #4ade80;'>{annotated_by_user}</b> (Объектов: {total_main_objects})"))
+        summary_layout.addWidget(QLabel(f"{tr('Размечено моделью (Ожидает проверки)')}: <b style='color: #60a5fa;'>{annotated_by_ai}</b> (Объектов: {total_auto_objects})"))
+        summary_layout.addWidget(QLabel(f"{tr('Абсолютно неразмечено')}: <b style='color: #f87171;'>{unannotated_images}</b>"))
+        summary_group.setLayout(summary_layout)
+        layout.addWidget(summary_group)
+
+        # ===== Детальная таблица распределения по классам =====
+        class_group = QGroupBox(tr("Распределение объектов по классам"))
+        class_layout = QVBoxLayout(class_group)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels([
+            tr("Класс"), 
+            tr("Вручную (Main)"), 
+            tr("Моделью (Auto)"), 
+            tr("Всего (Total)")
+        ])
+        
+        # Настройка поведения колонок
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        # Подготовка данных для сортировки по общему числу объектов
+        table_data = []
+        for cls_name in all_seen_classes:
+            m_count = class_main_counts[cls_name]
+            a_count = class_auto_counts[cls_name]
+            t_count = m_count + a_count
+            # Чтобы пустые классы из схемы не захламляли верх, сортируем по total
+            table_data.append((cls_name, m_count, a_count, t_count))
+            
+        # Сортируем: сначала те, где больше всего объектов
+        table_data.sort(key=lambda x: x[3], reverse=True)
+
+        self.table.setRowCount(len(table_data))
+        
+        for row, (cls_name, m_count, a_count, t_count) in enumerate(table_data):
+            item_name = QTableWidgetItem(str(cls_name))
+            item_main = QTableWidgetItem(str(m_count) if m_count > 0 else "-")
+            item_auto = QTableWidgetItem(str(a_count) if a_count > 0 else "-")
+            item_total = QTableWidgetItem(str(t_count))
+            
+            # Выравнивание по центру для цифр
+            item_main.setTextAlignment(Qt.AlignCenter)
+            item_auto.setTextAlignment(Qt.AlignCenter)
+            item_total.setTextAlignment(Qt.AlignCenter)
+            
+            # Подсветим ручную разметку зеленым
+            if m_count > 0:
+                item_main.setForeground(Qt.GlobalColor.green)
+                
+            # ИСПРАВЛЕНО: Делаем тотал жирным через объект QFont
+            font = item_total.font()
+            font.setBold(True)
+            item_total.setFont(font)
+
+            self.table.setItem(row, 0, item_name)
+            self.table.setItem(row, 1, item_main)
+            self.table.setItem(row, 2, item_auto)
+            self.table.setItem(row, 3, item_total)
+
+        class_layout.addWidget(self.table)
+        class_group.setLayout(class_layout)
+        layout.addWidget(class_group)
+
+        # Кнопка закрытия
+        btn_layout = QHBoxLayout()
+        close_btn = QPushButton(tr("Закрыть"))
+        close_btn.setFixedHeight(32)
+        close_btn.setFixedWidth(100)
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)

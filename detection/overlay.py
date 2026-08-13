@@ -75,7 +75,7 @@ class DetectorThread(QThread):
         self.running = True
         self.frame_skip = FRAME_SKIP
         self.det_conf = 0.4
-        self.cls_conf = config.CLS_CONF
+        self.cls_conf = config.load_config().get("cls_conf", 0.5)
         self.imgsz = DET_IMG_SIZE
         self.frame_counter = 0
         self.classifier_enabled = False
@@ -435,12 +435,20 @@ class OverlayWindow(QMainWindow):
             frame = cv2.cvtColor(np.array(img), cv2.COLOR_BGRA2BGR)
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             img_filename = f"auto_{timestamp}.jpg"
-            img_path = os.path.join(os.path.dirname(config.AUTO_JSON), img_filename)
+
+            # Save captures to BASE_DIR/data/overlay_captures/ (no longer tied to config.AUTO_JSON)
+            capture_dir = os.path.join(config.BASE_DIR, "data", "overlay_captures")
+            os.makedirs(capture_dir, exist_ok=True)
+            img_path = os.path.join(capture_dir, img_filename)
             cv2.imwrite(img_path, frame)
 
-            if os.path.exists(config.AUTO_JSON):
-                with open(config.AUTO_JSON, 'r', encoding='utf-8') as f:
-                    annotations = json.load(f)
+            ann_file = os.path.join(capture_dir, "annotations.json")
+            if os.path.exists(ann_file):
+                try:
+                    with open(ann_file, 'r', encoding='utf-8') as f:
+                        annotations = json.load(f)
+                except Exception:
+                    annotations = {}
             else:
                 annotations = {}
 
@@ -453,10 +461,10 @@ class OverlayWindow(QMainWindow):
                     "bbox": [x1, y1, x2, y2],
                     "class": tank_type
                 })
-            annotations[img_filename] = boxes_list if len(boxes_list) > 1 else boxes_list[0]
-            with open(config.AUTO_JSON, 'w', encoding='utf-8') as f:
+            annotations[img_filename] = boxes_list
+            with open(ann_file, 'w', encoding='utf-8') as f:
                 json.dump(annotations, f, indent=2, ensure_ascii=False)
-            print(f"Saved {len(boxes_list)} boxes")
+            print(f"Saved {len(boxes_list)} boxes to {img_path}")
 
     def closeEvent(self, event):
         self.capture_thread.stop()

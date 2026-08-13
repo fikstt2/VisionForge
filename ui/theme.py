@@ -154,7 +154,7 @@ THEMES = {
 
 def get_theme(name):
     return THEMES.get(name, DARK_STYLE)
-
+    
 def get_current_theme_style():
-    import config
-    return get_theme(config.THEME)
+    cfg = config.load_config()
+    return get_theme(cfg.get("theme", "Тёмная"))

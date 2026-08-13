@@ -33,6 +33,7 @@ ui/runs/
 *.spec
 *.ico
 *.json
+*.vf
 # Thumbnail cache
 thumb_cache/
 visionforge_build/
@@ -50,8 +51,6 @@ models/
 /ui/annotations/
 /ui/data/
 /ui/runs/
-/tests/
-run_tests.py
 
 
 

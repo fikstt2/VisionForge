@@ -30,14 +30,12 @@ class GalleryDialog(QDialog):
         top_bar = QHBoxLayout()
         top_bar.setSpacing(10)
 
-        # Заголовок
         title = QLabel(tr("Галерея изображений"))
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #f4f4f5;")
         top_bar.addWidget(title)
 
         top_bar.addStretch()
 
-        # Счётчик
         self.count_label = QLabel()
         self.count_label.setStyleSheet("font-size: 12px; color: #71717a;")
         top_bar.addWidget(self.count_label)
@@ -48,7 +46,6 @@ class GalleryDialog(QDialog):
         filter_bar = QHBoxLayout()
         filter_bar.setSpacing(10)
 
-        # Поиск по имени
         search_icon_label = QLabel("🔍")
         search_icon_label.setStyleSheet("font-size: 14px;")
         filter_bar.addWidget(search_icon_label)
@@ -72,7 +69,6 @@ class GalleryDialog(QDialog):
         self.search_edit.textChanged.connect(self._on_search_or_filter)
         filter_bar.addWidget(self.search_edit)
 
-        # Фильтр по классу
         filter_label = QLabel(tr("Класс:"))
         filter_label.setStyleSheet("font-size: 12px; color: #a1a1aa;")
         filter_bar.addWidget(filter_label)
@@ -85,7 +81,6 @@ class GalleryDialog(QDialog):
         self.filter_combo.currentTextChanged.connect(self._on_search_or_filter)
         filter_bar.addWidget(self.filter_combo)
 
-        # Размер миниатюр
         size_label = QLabel(tr("Размер:"))
         size_label.setStyleSheet("font-size: 12px; color: #a1a1aa;")
         filter_bar.addWidget(size_label)
@@ -95,7 +90,7 @@ class GalleryDialog(QDialog):
         self.size_combo.addItem(tr("Мелкие"), 80)
         self.size_combo.addItem(tr("Средние"), 140)
         self.size_combo.addItem(tr("Крупные"), 220)
-        self.size_combo.setCurrentIndex(1)  # Средние по умолчанию
+        self.size_combo.setCurrentIndex(1)
         self.size_combo.currentIndexChanged.connect(self._on_size_changed)
         filter_bar.addWidget(self.size_combo)
 
@@ -107,7 +102,7 @@ class GalleryDialog(QDialog):
         self.list_widget.setIconSize(QSize(140, 100))
         self.list_widget.setGridSize(QSize(155, 120))
         self.list_widget.setResizeMode(QListWidget.Adjust)
-        self.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
+        self.list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.list_widget.itemDoubleClicked.connect(self.accept)
         self.list_widget.setStyleSheet("""
             QListWidget {
@@ -137,17 +132,15 @@ class GalleryDialog(QDialog):
         self.list_widget.setSpacing(4)
         layout.addWidget(self.list_widget)
 
-        # Ленивая загрузка
         self.scroll_timer = QTimer()
         self.scroll_timer.setSingleShot(True)
         self.scroll_timer.timeout.connect(self.load_visible_thumbnails)
         self.list_widget.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
-        # ===== Нижняя панель кнопок =====
+        # ===== Нижняя панель =====
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
 
-        # Статус выбора
         self.selection_label = QLabel(tr("Ничего не выбрано"))
         self.selection_label.setStyleSheet("font-size: 12px; color: #71717a;")
         btn_layout.addWidget(self.selection_label)
@@ -190,29 +183,24 @@ class GalleryDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
-        # Обновляем счётчик выбранных
         self.list_widget.itemSelectionChanged.connect(self._update_selection_label)
-
         self.populate_list()
 
     def _on_size_changed(self, index):
-        """Меняет размер миниатюр в сетке."""
         size = self.size_combo.currentData()
-        aspect = 0.7  # высота = 70% ширины
+        aspect = 0.7
         self.list_widget.setIconSize(QSize(size, int(size * aspect)))
         self.list_widget.setGridSize(QSize(size + 15, int(size * aspect) + 25))
-        # Перезагружаем миниатюры
         QTimer.singleShot(50, self.load_visible_thumbnails)
 
     def _on_search_or_filter(self):
-        """Объединённый обработчик поиска и фильтра."""
         search_text = self.search_edit.text().strip().lower()
         filter_text = self.filter_combo.currentText()
 
-        # Шаг 1: фильтр по классу
         if filter_text == tr("Все"):
             filtered = list(self.filenames)
         elif filter_text == tr("Неразмеченные"):
+            # Проверяем по нашей новой монолитной структуре главного окна
             filtered = [f for f in self.filenames if not self.main_window.is_image_annotated(f)]
         else:
             filtered = []
@@ -221,7 +209,6 @@ class GalleryDialog(QDialog):
                 if filter_text in types:
                     filtered.append(f)
 
-        # Шаг 2: фильтр по поиску
         if search_text:
             filtered = [f for f in filtered if search_text in os.path.basename(f).lower()]
 
@@ -231,7 +218,6 @@ class GalleryDialog(QDialog):
             item.setData(Qt.UserRole, f)
             item.setIcon(QIcon())
             item.setToolTip(os.path.basename(f))
-            # Показываем имя файла под миниатюрой
             basename = os.path.splitext(os.path.basename(f))[0]
             if len(basename) > 18:
                 basename = basename[:15] + "..."
@@ -298,7 +284,6 @@ class GalleryDialog(QDialog):
         if start_idx is None:
             return
 
-        # Увеличенный буфер для плавного скролла
         buffer = 10
         start = max(0, start_idx - buffer)
         end = min(list_widget.count(), end_idx + buffer + 1)
@@ -307,11 +292,11 @@ class GalleryDialog(QDialog):
             item = list_widget.item(i)
             if item and item.icon().isNull():
                 filename = item.data(Qt.UserRole)
-                pixmap = self.main_window.load_thumbnail_disk(filename)
+                # Дергаем генерацию миниатюры из главного окна
+                pixmap = self.main_window.generate_thumbnail(filename)
                 if pixmap:
                     item.setIcon(QIcon(pixmap))
 
-        # Выгружаем далёкие миниатюры для экономии памяти
         for i in range(list_widget.count()):
             if i < start or i >= end:
                 item = list_widget.item(i)

@@ -75,10 +75,14 @@ class TypeDialog(QDialog):
 
     def reload_tree(self):
         counts = defaultdict(int)
-        for boxes in self.project.annotations.values():
-            for box in boxes:
-                cls = box.get('class', 'unknown')
-                counts[cls] += 1
+        
+        # Исправлено: Считаем объекты из монолитной структуры images_data
+        for img_name, modes in self.project.images_data.items():
+            # Учитываем боксы и из ручной ('main'), и из автоматической ('auto') веток
+            for mode_key in ["main", "auto"]:
+                for box in modes.get(mode_key, []):
+                    cls = box.get('class', 'unknown')
+                    counts[cls] += 1
 
         self.tree.populate_from_hierarchy(
             self.project.class_hierarchy,
