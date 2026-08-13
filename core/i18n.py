@@ -18,13 +18,24 @@ class Translator(QObject):
     def load_language(self, lang: str):
         """Загружает словарь переводов для указанного языка."""
         self._current_lang = lang
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        locale_file = os.path.join(base_dir, "locales", f"{lang}.json")
-        if os.path.exists(locale_file):
-            with open(locale_file, "r", encoding="utf-8") as f:
-                self._translations = json.load(f)
-        else:
-            self._translations = {}
+        import sys
+        candidate_dirs = [
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            getattr(sys, '_MEIPASS', ''),
+            os.path.dirname(os.path.abspath(sys.executable))
+        ]
+        self._translations = {}
+        for b_dir in candidate_dirs:
+            if not b_dir:
+                continue
+            locale_file = os.path.join(b_dir, "locales", f"{lang}.json")
+            if os.path.exists(locale_file):
+                try:
+                    with open(locale_file, "r", encoding="utf-8") as f:
+                        self._translations = json.load(f)
+                    break
+                except Exception:
+                    pass
         self.languageChanged.emit(lang)
 
     def tr(self, text: str) -> str:

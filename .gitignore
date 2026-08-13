@@ -31,8 +31,8 @@ ui/runs/
 *.log
 *.sqlite3
 *.spec
-*.ico
 *.json
+!locales/*.json
 *.vf
 # Thumbnail cache
 thumb_cache/

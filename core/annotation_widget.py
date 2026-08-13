@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt, QRect, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor, QImage, QPixmap, QPolygon
 from PyQt5.QtCore import QPoint
 from core.i18n import tr
+from core.smart_segmenter import SmartSegmenter
 
 logging.basicConfig(filename='visionforge.log', level=logging.ERROR,
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -65,6 +66,7 @@ class AnnotationWidget(QOpenGLWidget):
 
         self.detector = None
         self.classifier = None
+        self.smart_segmenter = SmartSegmenter()
 
         self.setAutoFillBackground(True)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -93,6 +95,8 @@ class AnnotationWidget(QOpenGLWidget):
     def set_models(self, detector=None, classifier=None):
         self.detector = detector
         self.classifier = classifier
+        if hasattr(self, 'smart_segmenter') and self.smart_segmenter is not None:
+            self.smart_segmenter.model = detector
 
     def screen_to_image(self, x, y):
         return (x - self.pan_x) / self.zoom, (y - self.pan_y) / self.zoom
@@ -110,7 +114,7 @@ class AnnotationWidget(QOpenGLWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        painter.fillRect(self.rect(), QColor(50, 50, 50))
+        painter.fillRect(self.rect(), QColor(16, 16, 20))
 
         if self.pixmap and not self.pixmap.isNull():
             target_rect = QRect(
@@ -123,12 +127,12 @@ class AnnotationWidget(QOpenGLWidget):
 
             for idx, box in enumerate(self.boxes):
                 class_name = box.get("class", "unknown")
-                color_name = self.class_colors.get(class_name, "#ff0000")
+                color_name = self.class_colors.get(class_name, "#818cf8")
                 color = QColor(color_name)
 
                 if idx == self.selected_idx:
-                    painter.setPen(QPen(QColor(0, 255, 255), 3))
-                    painter.setBrush(QColor(0, 255, 255, 50))
+                    painter.setPen(QPen(QColor(99, 102, 241), 3))
+                    painter.setBrush(QColor(99, 102, 241, 40))
                 else:
                     painter.setPen(QPen(color, 2))
                     painter.setBrush(Qt.NoBrush)
@@ -142,9 +146,14 @@ class AnnotationWidget(QOpenGLWidget):
                     if points:
                         polygon = QPolygon(points)
                         painter.drawPolygon(polygon)
-                        text_color = get_contrast_text_color(color)
-                        painter.setPen(QPen(text_color, 1))
-                        painter.drawText(points[0].x(), points[0].y() - 5, class_name)
+                        
+                        # Плашка класса
+                        lx, ly = points[0].x(), points[0].y() - 6
+                        painter.setPen(Qt.NoPen)
+                        painter.setBrush(QColor(24, 24, 28, 200))
+                        painter.drawRoundedRect(QRect(lx - 2, ly - 13, len(class_name) * 7 + 8, 15), 3, 3)
+                        painter.setPen(QPen(color if idx != self.selected_idx else QColor(129, 140, 248), 1))
+                        painter.drawText(lx + 2, ly, class_name)
                 elif "bbox" in box:
                     x1, y1, x2, y2 = box["bbox"]
                     sx1, sy1 = self.image_to_screen(x1, y1)
@@ -154,9 +163,14 @@ class AnnotationWidget(QOpenGLWidget):
                     if sx2 - sx1 < 1 or sy2 - sy1 < 1:
                         continue
                     painter.drawRect(QRect(sx1, sy1, sx2 - sx1, sy2 - sy1))
-                    text_color = get_contrast_text_color(color)
-                    painter.setPen(QPen(text_color, 1))
-                    painter.drawText(sx1, sy1 - 5, class_name)
+                    
+                    # Плашка класса
+                    lx, ly = sx1, sy1 - 4
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QColor(24, 24, 28, 200))
+                    painter.drawRoundedRect(QRect(lx - 2, ly - 13, len(class_name) * 7 + 8, 15), 3, 3)
+                    painter.setPen(QPen(color if idx != self.selected_idx else QColor(129, 140, 248), 1))
+                    painter.drawText(lx + 2, ly, class_name)
 
                 # Рисуем ручки для углов бокса или точек полигона у выбранного объекта
                 if idx == self.selected_idx:
@@ -270,6 +284,28 @@ class AnnotationWidget(QOpenGLWidget):
         if event.button() == Qt.LeftButton:
             x, y = self.screen_to_image(event.x(), event.y())
             if x < 0 or y < 0 or x >= self.image_orig.shape[1] or y >= self.image_orig.shape[0]:
+                return
+
+            # Режим «Магия» (1-клик сегментация FastSAM / GrabCut)
+            if self.draw_mode == 'magic':
+                self.save_state_to_history()
+                poly_pts = self.smart_segmenter.segment_point(self.image_orig, round(x), round(y))
+                if poly_pts and len(poly_pts) >= 3:
+                    xs = [p[0] for p in poly_pts]
+                    ys = [p[1] for p in poly_pts]
+                    bbox = [min(xs), min(ys), max(xs), max(ys)]
+                    new_obj = {
+                        "bbox": bbox,
+                        "polygon": poly_pts,
+                        "class": self.current_class
+                    }
+                    self.boxes.append(new_obj)
+                    self.selected_idx = len(self.boxes) - 1
+                    self.boxes_changed.emit()
+                    self.status_message.emit(f"{tr('Добавлен полигон класса')} {self.current_class} ({len(poly_pts)} {tr('точек')})")
+                    self.update()
+                else:
+                    self.status_message.emit(tr("Не удалось выделить объект. Попробуйте кликнуть ближе к центру."))
                 return
 
             # Режим полигона: при нажатии определяем — попали ли в точку
@@ -741,9 +777,16 @@ class AnnotationWidget(QOpenGLWidget):
                 return
             self.save_state_to_history()
             new_boxes = []
-            for box in boxes:
+            has_masks = hasattr(results, 'masks') and results.masks is not None and len(results.masks.xy) > 0
+
+            for idx, box in enumerate(boxes):
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
-                class_name = "unknown"
+                
+                # Извлекаем класс из модели детектора
+                cls_id = int(box.cls[0].item()) if hasattr(box, 'cls') and len(box.cls) > 0 else 0
+                class_name = self.detector.names.get(cls_id, self.current_class) if (hasattr(self.detector, 'names') and self.detector.names) else self.current_class
+                
+                # Если подключен классификатор — уточняем класс
                 if self.classifier is not None:
                     crop = self.image_orig[y1:y2, x1:x2]
                     if crop.size > 0 and crop.shape[0] >= 10 and crop.shape[1] >= 10:
@@ -754,7 +797,15 @@ class AnnotationWidget(QOpenGLWidget):
                             top_class_id = probs.top1
                             if top_conf >= cls_conf:
                                 class_name = self.classifier.names[top_class_id]
-                new_boxes.append({"bbox": [x1, y1, x2, y2], "class": class_name})
+
+                annot_item = {"bbox": [x1, y1, x2, y2], "class": class_name}
+                if has_masks and idx < len(results.masks.xy):
+                    poly = results.masks.xy[idx]
+                    if len(poly) >= 3:
+                        annot_item["polygon"] = [[int(round(p[0])), int(round(p[1]))] for p in poly]
+
+                new_boxes.append(annot_item)
+
             self.boxes.extend(new_boxes)
             self.boxes_changed.emit()
             self.status_message.emit(f"{tr('Добавлено')} {len(new_boxes)} {tr('боксов')}")

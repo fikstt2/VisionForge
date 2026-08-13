@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QListWidget, QListWidgetItem,
                              QGroupBox, QFileDialog, QMessageBox, QInputDialog,
                              QDialog, QComboBox, QStackedWidget, QAction,
-                             QSplitter, QRadioButton, QColorDialog, QMenu, QProgressBar)
+                             QSplitter, QRadioButton, QColorDialog, QMenu, QProgressBar, QLayout)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, QThread
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QCursor
 from ui.theme import get_current_theme_style
@@ -118,31 +118,44 @@ class BatchWorker(QThread):
 class BoxItemWidget(QWidget):
     delete_clicked = pyqtSignal(int)
 
-    def __init__(self, text, index, parent=None):
+    def __init__(self, text, index, color_hex="#818cf8", is_polygon=False, parent=None):
         super().__init__(parent)
         self.index = index
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(8)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setSpacing(6)
 
-        self.label = QLabel(text)
-        self.label.setStyleSheet("color: #f4f4f5; font-size: 12px;")
+        # Color dot indicator
+        self.color_dot = QLabel()
+        self.color_dot.setFixedSize(8, 8)
+        self.color_dot.setStyleSheet(f"background-color: {color_hex}; border-radius: 4px;")
+        layout.addWidget(self.color_dot)
+
+        # Class label + type badge
+        type_badge = " [P]" if is_polygon else ""
+        self.label = QLabel(f"{text}{type_badge}")
+        self.label.setStyleSheet("color: #f4f4f5; font-size: 11px; font-weight: 500;")
         layout.addWidget(self.label)
         layout.addStretch()
 
         self.delete_btn = QPushButton("✕")
+        self.delete_btn.setToolTip(tr("Удалить аннотацию"))
         self.delete_btn.setFixedSize(18, 18)
         self.delete_btn.setStyleSheet("""
             QPushButton {
-                background-color: #ef4444;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                font-size: 12px;
+                background-color: transparent;
+                color: #71717a;
+                border: 1px solid #3f3f46;
+                border-radius: 9px;
+                font-size: 10px;
                 font-weight: bold;
                 padding: 0px;
             }
-            QPushButton:hover { background-color: #f87171; }
+            QPushButton:hover {
+                background-color: #ef4444;
+                border-color: #ef4444;
+                color: #ffffff;
+            }
         """)
         self.delete_btn.clicked.connect(self.on_delete)
         layout.addWidget(self.delete_btn)
@@ -281,6 +294,10 @@ class MainWindow(QMainWindow):
         import_action.triggered.connect(self.import_annotations)
         self.file_menu.addAction(import_action)
 
+        import_video_action = QAction(tr('Импорт видео (Нарезка на кадры)...'), self)
+        import_video_action.triggered.connect(self.import_video)
+        self.file_menu.addAction(import_video_action)
+
         self.file_menu.addSeparator()
         self.export_menu = self.file_menu.addMenu(tr('Экспорт'))
         export_yolo_action = QAction(tr('YOLO'), self)
@@ -292,6 +309,10 @@ class MainWindow(QMainWindow):
         export_voc_action = QAction(tr('Pascal VOC'), self)
         export_voc_action.triggered.connect(self.export_voc)
         self.export_menu.addAction(export_voc_action)
+        self.export_menu.addSeparator()
+        export_prod_action = QAction(tr('Экспорт модели в Production (ONNX / TensorRT / OpenVINO)...'), self)
+        export_prod_action.triggered.connect(self.open_production_export)
+        self.export_menu.addAction(export_prod_action)
 
         self.file_menu.addSeparator()
         exit_action = QAction(tr('Выход'), self)
@@ -305,12 +326,29 @@ class MainWindow(QMainWindow):
         batch_action = QAction(tr('Пакетная разметка'), self)
         batch_action.triggered.connect(self.batch_process)
         self.tools_menu.addAction(batch_action)
+        interp_action = QAction(tr('Интерполяция треков между кадрами (Ctrl+I)...'), self)
+        interp_action.triggered.connect(self.open_track_interpolation)
+        self.tools_menu.addAction(interp_action)
         prepare_dataset_action = QAction(tr('Подготовить датасет'), self)
         prepare_dataset_action.triggered.connect(self.prepare_dataset)
         self.tools_menu.addAction(prepare_dataset_action)
         stats_action = QAction(tr('Статистика проекта'), self)
         stats_action.triggered.connect(self.show_statistics)
         self.tools_menu.addAction(stats_action)
+        self.tools_menu.addSeparator()
+        sandbox_action = QAction(tr('Интерактивная песочница аугментаций...'), self)
+        sandbox_action.triggered.connect(self.open_augmentation_sandbox)
+        self.tools_menu.addAction(sandbox_action)
+        dedupe_action = QAction(tr('Поиск дубликатов и контроль качества...'), self)
+        dedupe_action.triggered.connect(self.open_deduplication_dialog)
+        self.tools_menu.addAction(dedupe_action)
+        embed_action = QAction(tr('Интерактивная карта эмбеддингов (t-SNE / PCA)...'), self)
+        embed_action.triggered.connect(self.open_embedding_map)
+        self.tools_menu.addAction(embed_action)
+        self.tools_menu.addSeparator()
+        gen_infer_action = QAction(tr('Сгенерировать Python-скрипт инференса...'), self)
+        gen_infer_action.triggered.connect(self.open_inference_generator)
+        self.tools_menu.addAction(gen_infer_action)
 
         self.train_menu = menubar.addMenu(tr('Обучение'))
         train_action = QAction(tr('Открыть обучение'), self)
@@ -343,45 +381,71 @@ class MainWindow(QMainWindow):
         self.widget.show_type_dialog_requested.connect(self.open_type_dialog)
 
         hud_layout = QVBoxLayout(self.widget)
-        hud_layout.setContentsMargins(0, 15, 0, 0)
+        hud_layout.setContentsMargins(0, 10, 0, 0)
         hud_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-        hud_container = QWidget()
-        hud_container.setStyleSheet("background: transparent;")
-        top_bar = QHBoxLayout(hud_container)
-        top_bar.setContentsMargins(0, 0, 0, 0)
-        top_bar.setSpacing(4)
 
-        btn_style = "QPushButton { padding: 0px; background-color: rgba(60,60,60,180); color: white; border: 1px solid #555; border-radius: 12px; font-weight: bold; } QPushButton:hover { background-color: rgba(80,80,80,200); }"
-        self.btn_prev = QPushButton(tr("◀"))
-        self.btn_prev.setFixedSize(28, 28)
-        self.btn_prev.setStyleSheet(btn_style)
+        hud_container = QWidget()
+        hud_container.setObjectName("hud_capsule")
+        hud_container.setStyleSheet("""
+            QWidget#hud_capsule {
+                background-color: rgba(20, 20, 26, 210);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+            }
+        """)
+
+        top_bar = QHBoxLayout(hud_container)
+        top_bar.setContentsMargins(6, 4, 6, 4)
+        top_bar.setSpacing(6)
+        top_bar.setSizeConstraint(QLayout.SetFixedSize)
+
+        hud_btn_style = """
+            QPushButton {
+                background-color: rgba(36, 36, 44, 220);
+                color: #e4e4e7;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 5px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 2px 8px;
+            }
+            QPushButton:hover {
+                background-color: #4f46e5;
+                border-color: #818cf8;
+                color: #ffffff;
+            }
+        """
+
+        self.btn_prev = QPushButton(tr("Назад [F]"))
+        self.btn_prev.setFixedSize(76, 24)
+        self.btn_prev.setStyleSheet(hud_btn_style)
+        self.btn_prev.setToolTip(tr("Предыдущее изображение (F)"))
         self.btn_prev.clicked.connect(self.prev_image)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedSize(250, 24)
+        self.progress_bar.setFixedSize(220, 22)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setAlignment(Qt.AlignCenter)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 12px;
-                background-color: rgba(24, 24, 27, 180);
-                color: white;
-                font-family: 'Segoe UI', 'Inter', 'Roboto', sans-serif;
-                font-weight: bold;
-                font-size: 13px;
+                border-radius: 5px;
+                background-color: rgba(14, 14, 18, 220);
+                color: #f4f4f5;
+                font-weight: 600;
+                font-size: 10px;
                 text-align: center;
             }
             QProgressBar::chunk {
-                background-color: rgba(99, 102, 241, 180);
-                border-radius: 10px;
-                margin: 2px;
+                background-color: #4f46e5;
+                border-radius: 4px;
             }
         """)
 
-        self.btn_next = QPushButton(tr("▶"))
-        self.btn_next.setFixedSize(28, 28)
-        self.btn_next.setStyleSheet(btn_style)
+        self.btn_next = QPushButton(tr("Вперёд [G]"))
+        self.btn_next.setFixedSize(76, 24)
+        self.btn_next.setStyleSheet(hud_btn_style)
+        self.btn_next.setToolTip(tr("Следующее изображение (G)"))
         self.btn_next.clicked.connect(self.next_image)
 
         top_bar.addWidget(self.btn_prev)
@@ -389,102 +453,184 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_next)
         hud_layout.addWidget(hud_container)
 
+        # Плавающее toast-уведомление поверх холста
+        self.toast_label = QLabel(self.widget)
+        self.toast_label.setAlignment(Qt.AlignCenter)
+        self.toast_label.setStyleSheet("""
+            QLabel {
+                background-color: rgba(24, 24, 27, 240);
+                color: #4ade80;
+                font-weight: bold;
+                font-size: 11px;
+                border: 1px solid rgba(74, 222, 128, 0.5);
+                border-radius: 14px;
+                padding: 5px 14px;
+            }
+        """)
+        self.toast_label.hide()
+        self.toast_timer = QTimer(self)
+        self.toast_timer.setSingleShot(True)
+        self.toast_timer.timeout.connect(self.toast_label.hide)
+
         middle_layout = QHBoxLayout()
         middle_layout.setContentsMargins(0, 0, 0, 0)
         middle_layout.setSpacing(0)
 
         left_toolbar = QVBoxLayout()
-        left_toolbar.setContentsMargins(5, 10, 5, 10)
-        left_toolbar.setSpacing(8)
+        left_toolbar.setContentsMargins(6, 10, 6, 10)
+        left_toolbar.setSpacing(6)
         left_toolbar.setAlignment(Qt.AlignTop)
 
         btn_toolbar_style = """
             QPushButton {
-                font-size: 16px;
-                padding: 0px;
-                background-color: #27272a;
-                border: 1px solid #3f3f46;
+                background-color: #202026;
+                color: #d4d4d8;
+                border: 1px solid #2d2d38;
                 border-radius: 6px;
+                font-size: 10px;
+                font-weight: 600;
+                padding: 4px 2px;
+                text-align: center;
             }
-            QPushButton:hover { background-color: #3f3f46; }
-            QPushButton:checked { background-color: #4f46e5; border: 1px solid #818cf8; }
+            QPushButton:hover {
+                background-color: #2c2c36;
+                border-color: #4338ca;
+                color: #ffffff;
+            }
+            QPushButton:checked {
+                background-color: #4f46e5;
+                border-color: #818cf8;
+                color: #ffffff;
+            }
         """
-        self.btn_box_mode = QPushButton("⬜")
-        self.btn_box_mode.setFixedSize(36, 36)
+
+        self.btn_box_mode = QPushButton(tr("Бокс\n[B]"))
+        self.btn_box_mode.setFixedSize(58, 42)
         self.btn_box_mode.setCheckable(True)
         self.btn_box_mode.setChecked(True)
         self.btn_box_mode.setStyleSheet(btn_toolbar_style)
+        self.btn_box_mode.setToolTip(tr("Режим разметки прямоугольником (B)"))
         self.btn_box_mode.clicked.connect(self.set_box_mode)
 
-        self.btn_poly_mode = QPushButton("⬡")
-        self.btn_poly_mode.setFixedSize(36, 36)
+        self.btn_poly_mode = QPushButton(tr("Полигон\n[P]"))
+        self.btn_poly_mode.setFixedSize(58, 42)
         self.btn_poly_mode.setCheckable(True)
         self.btn_poly_mode.setStyleSheet(btn_toolbar_style)
+        self.btn_poly_mode.setToolTip(tr("Режим разметки полигоном (P)"))
         self.btn_poly_mode.clicked.connect(self.set_poly_mode)
 
-        self.btn_auto = QPushButton("🤖")
-        self.btn_auto.setFixedSize(36, 36)
+        self.btn_magic_mode = QPushButton(tr("Магия\n[M]"))
+        self.btn_magic_mode.setFixedSize(58, 42)
+        self.btn_magic_mode.setCheckable(True)
+        self.btn_magic_mode.setStyleSheet(btn_toolbar_style)
+        self.btn_magic_mode.setToolTip(tr("Сегментация в 1 клик (M)"))
+        self.btn_magic_mode.clicked.connect(self.set_magic_mode)
+
+        self.btn_auto = QPushButton(tr("Авто\n[A]"))
+        self.btn_auto.setFixedSize(58, 42)
         self.btn_auto.setStyleSheet(btn_toolbar_style)
+        self.btn_auto.setToolTip(tr("Авторазметка текущего кадра моделью (A)"))
         self.btn_auto.clicked.connect(self.auto_annotate)
 
-        self.btn_next_class = QPushButton("⏩")
-        self.btn_next_class.setFixedSize(36, 36)
+        self.btn_next_class = QPushButton(tr("Класс\n[T]"))
+        self.btn_next_class.setFixedSize(58, 42)
         self.btn_next_class.setStyleSheet(btn_toolbar_style)
+        self.btn_next_class.setToolTip(tr("Переключить на следующий класс (T)"))
         self.btn_next_class.clicked.connect(self.next_class)
 
-        self.btn_delete_image = QPushButton("🗑️")
-        self.btn_delete_image.setFixedSize(36, 36)
-        self.btn_delete_image.setStyleSheet(btn_toolbar_style + " QPushButton { color: #ff4c4c; }")
+        self.btn_delete_image = QPushButton(tr("Удалить\n[Ctrl+D]"))
+        self.btn_delete_image.setFixedSize(58, 42)
+        self.btn_delete_image.setStyleSheet("""
+            QPushButton {
+                background-color: #202026;
+                color: #f87171;
+                border: 1px solid #3f2024;
+                border-radius: 6px;
+                font-size: 10px;
+                font-weight: 600;
+                padding: 4px 2px;
+            }
+            QPushButton:hover {
+                background-color: #ef4444;
+                border-color: #ef4444;
+                color: #ffffff;
+            }
+        """)
+        self.btn_delete_image.setToolTip(tr("Удалить текущее изображение (Ctrl+D)"))
         self.btn_delete_image.clicked.connect(self.delete_current_image)
 
         left_toolbar.addWidget(self.btn_box_mode)
         left_toolbar.addWidget(self.btn_poly_mode)
+        left_toolbar.addWidget(self.btn_magic_mode)
         left_toolbar.addWidget(self.btn_auto)
         left_toolbar.addWidget(self.btn_next_class)
         left_toolbar.addWidget(self.btn_delete_image)
         left_toolbar.addStretch()
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(56)
-        left_panel.setStyleSheet("background-color: #18181b;")
+        left_panel.setFixedWidth(70)
+        left_panel.setStyleSheet("background-color: #151518; border-right: 1px solid #23232a;")
         left_panel.setLayout(left_toolbar)
         middle_layout.addWidget(left_panel)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(2)
-        splitter.setStyleSheet("QSplitter::handle { background-color: #3c3c3c; }")
+        splitter.setStyleSheet("QSplitter::handle { background-color: #2e2e38; }")
         splitter.addWidget(self.widget)
 
         right_panel = QWidget()
         right_panel.setObjectName("right_panel")
-        right_panel.setMinimumWidth(200)
+        right_panel.setMinimumWidth(220)
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(4, 8, 4, 8)
-        right_layout.setSpacing(2)
+        right_layout.setContentsMargins(6, 6, 6, 6)
+        right_layout.setSpacing(6)
 
-        self.mode_group = QGroupBox(tr("Режим"))
-        mode_layout = QHBoxLayout()
-        mode_layout.setContentsMargins(4, 8, 4, 8)
-        mode_layout.setSpacing(2)
-        self.main_radio = QRadioButton(tr("Основной"))
-        self.auto_radio = QRadioButton(tr("Авто"))
+        # Режим разметки
+        self.mode_group = QGroupBox(tr("Режим разметки"))
+        mode_layout = QVBoxLayout()
+        mode_layout.setContentsMargins(6, 8, 6, 8)
+        mode_layout.setSpacing(6)
+
+        mode_radio_layout = QHBoxLayout()
+        self.main_radio = QRadioButton(tr("Ручной"))
+        self.auto_radio = QRadioButton(tr("Нейросеть"))
         self.main_radio.setChecked(True)
         self.main_radio.toggled.connect(self.on_mode_changed)
-        mode_layout.addWidget(self.main_radio)
-        mode_layout.addWidget(self.auto_radio)
+        mode_radio_layout.addWidget(self.main_radio)
+        mode_radio_layout.addWidget(self.auto_radio)
+        mode_layout.addLayout(mode_radio_layout)
 
-        self.transfer_btn = QPushButton(tr("→ В основной"))
+        self.transfer_btn = QPushButton(tr("Применить к основному"))
         self.transfer_btn.setEnabled(False)
+        self.transfer_btn.setFixedHeight(28)
+        self.transfer_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27272a;
+                color: #a1a1aa;
+                border: 1px solid #3f3f46;
+                border-radius: 5px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:enabled {
+                background-color: #4f46e5;
+                color: #ffffff;
+                border-color: #6366f1;
+            }
+            QPushButton:enabled:hover {
+                background-color: #6366f1;
+            }
+        """)
         self.transfer_btn.clicked.connect(self.transfer_to_main)
-        self.transfer_btn.setFixedWidth(110)
         mode_layout.addWidget(self.transfer_btn)
         self.mode_group.setLayout(mode_layout)
         right_layout.addWidget(self.mode_group)
 
-        self.filter_group = QGroupBox(tr("Фильтр"))
+        # Фильтр изображений
+        self.filter_group = QGroupBox(tr("Фильтр списка"))
         filter_layout = QVBoxLayout()
-        filter_layout.setContentsMargins(4, 8, 4, 8)
-        filter_layout.setSpacing(6)
+        filter_layout.setContentsMargins(6, 8, 6, 8)
+        filter_layout.setSpacing(4)
         self.filter_combo = QComboBox()
         self.filter_combo.addItem(tr("Все"))
         self.filter_combo.currentTextChanged.connect(self.on_filter_changed)
@@ -492,10 +638,11 @@ class MainWindow(QMainWindow):
         self.filter_group.setLayout(filter_layout)
         right_layout.addWidget(self.filter_group)
 
-        self.classes_group = QGroupBox(tr("Классы"))
+        # Классы объектов
+        self.classes_group = QGroupBox(tr("Классы объектов"))
         classes_layout = QVBoxLayout()
-        classes_layout.setContentsMargins(4, 8, 4, 8)
-        classes_layout.setSpacing(2)
+        classes_layout.setContentsMargins(6, 8, 6, 8)
+        classes_layout.setSpacing(4)
         self.class_tree = ClassHierarchyWidget()
         self.class_tree.class_selected.connect(self.on_class_selected_from_list)
         self.class_tree.color_change_requested.connect(self.on_class_color_changed)
@@ -504,44 +651,53 @@ class MainWindow(QMainWindow):
 
         hierarchy_btn_layout = QHBoxLayout()
         self.add_group_btn = QPushButton(tr("+ Группа"))
+        self.add_group_btn.setFixedHeight(24)
         self.add_group_btn.clicked.connect(self.add_class_group)
-        self.expand_all_btn = QPushButton(tr("Развернуть всё"))
+
+        self.expand_all_btn = QPushButton(tr("Развернуть"))
+        self.expand_all_btn.setFixedHeight(24)
         self.expand_all_btn.clicked.connect(self.class_tree.expandAll)
-        self.collapse_all_btn = QPushButton(tr("Свернуть всё"))
+
+        self.collapse_all_btn = QPushButton(tr("Свернуть"))
+        self.collapse_all_btn.setFixedHeight(24)
         self.collapse_all_btn.clicked.connect(self.class_tree.collapseAll)
+
         hierarchy_btn_layout.addWidget(self.add_group_btn)
         hierarchy_btn_layout.addWidget(self.expand_all_btn)
         hierarchy_btn_layout.addWidget(self.collapse_all_btn)
         classes_layout.addLayout(hierarchy_btn_layout)
 
         classes_layout.addWidget(self.class_tree)
-        
-        self.btn_classes = QPushButton(tr("Редактировать список классов..."))
+
+        self.btn_classes = QPushButton(tr("Управление классами..."))
+        self.btn_classes.setFixedHeight(26)
         self.btn_classes.clicked.connect(self.open_type_dialog)
         classes_layout.addWidget(self.btn_classes)
         self.classes_group.setLayout(classes_layout)
         right_layout.addWidget(self.classes_group)
 
-        self.info_group = QGroupBox(tr("Информация"))
+        # Информация о кадре
+        self.info_group = QGroupBox(tr("Сводка"))
         info_layout = QVBoxLayout()
-        info_layout.setContentsMargins(4, 8, 4, 8)
-        info_layout.setSpacing(2)
-        self.total_label = QLabel(f"{tr('Всего')}: 0")
-        self.total_label.setStyleSheet("font-size: 12px; font-weight: bold;")
+        info_layout.setContentsMargins(6, 8, 6, 8)
+        info_layout.setSpacing(3)
+        self.total_label = QLabel(f"{tr('Всего в списке')}: 0")
+        self.total_label.setStyleSheet("font-size: 11px; font-weight: 600;")
         self.unannotated_label = QLabel(f"{tr('Неразмечено')}: 0")
-        self.unannotated_label.setStyleSheet("font-size: 12px;")
-        self.class_label = QLabel(f"{tr('Класс')}: {tr('unknown')}")
-        self.class_label.setStyleSheet("font-family: 'Segoe UI', 'Inter', 'Roboto', sans-serif; font-size: 12px; font-weight: bold; color: #818cf8;")
+        self.unannotated_label.setStyleSheet("font-size: 11px; color: #a1a1aa;")
+        self.class_label = QLabel(f"{tr('Активный класс')}: {tr('unknown')}")
+        self.class_label.setStyleSheet("font-size: 11px; font-weight: bold; color: #818cf8;")
         info_layout.addWidget(self.total_label)
         info_layout.addWidget(self.unannotated_label)
         info_layout.addWidget(self.class_label)
         self.info_group.setLayout(info_layout)
         right_layout.addWidget(self.info_group)
 
-        self.list_group = QGroupBox(tr("Боксы"))
+        # Аннотации на кадре
+        self.list_group = QGroupBox(tr("Аннотации на кадре"))
         list_layout = QVBoxLayout()
-        list_layout.setContentsMargins(4, 8, 4, 8)
-        list_layout.setSpacing(2)
+        list_layout.setContentsMargins(6, 8, 6, 8)
+        list_layout.setSpacing(4)
         self.box_list = QListWidget()
         self.box_list.itemClicked.connect(self.on_box_list_click)
         self.box_list.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -551,7 +707,7 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.list_group)
 
         splitter.addWidget(right_panel)
-        splitter.setSizes([1050, 230])
+        splitter.setSizes([1050, 240])
         middle_layout.addWidget(splitter)
         layout.addLayout(middle_layout)
 
@@ -577,20 +733,38 @@ class MainWindow(QMainWindow):
     def retranslate_ui(self):
         self.setWindowTitle(tr("VisionForge - Инструмент разметки"))
         self.create_menus()
-        self.mode_group.setTitle(tr("Режим"))
-        self.main_radio.setText(tr("Основной"))
-        self.auto_radio.setText(tr("Авто"))
-        self.transfer_btn.setText(tr("→ В основной"))
-        self.filter_group.setTitle(tr("Фильтр"))
+        self.btn_prev.setText(tr("Назад [F]"))
+        self.btn_prev.setToolTip(tr("Предыдущее изображение (F)"))
+        self.btn_next.setText(tr("Вперёд [G]"))
+        self.btn_next.setToolTip(tr("Следующее изображение (G)"))
+        self.btn_box_mode.setText(tr("Бокс\n[B]"))
+        self.btn_box_mode.setToolTip(tr("Режим разметки прямоугольником (B)"))
+        self.btn_poly_mode.setText(tr("Полигон\n[P]"))
+        self.btn_poly_mode.setToolTip(tr("Режим разметки полигоном (P)"))
+        self.btn_magic_mode.setText(tr("Магия\n[M]"))
+        self.btn_magic_mode.setToolTip(tr("Сегментация в 1 клик (M)"))
+        self.btn_auto.setText(tr("Авто\n[A]"))
+        self.btn_auto.setToolTip(tr("Авторазметка текущего кадра моделью (A)"))
+        self.btn_next_class.setText(tr("Класс\n[T]"))
+        self.btn_next_class.setToolTip(tr("Переключить на следующий класс (T)"))
+        self.btn_delete_image.setText(tr("Удалить\n[Ctrl+D]"))
+        self.btn_delete_image.setToolTip(tr("Удалить текущее изображение (Ctrl+D)"))
+
+        self.mode_group.setTitle(tr("Режим разметки"))
+        self.main_radio.setText(tr("Ручной"))
+        self.auto_radio.setText(tr("Нейросеть"))
+        self.transfer_btn.setText(tr("Применить к основному"))
+        self.filter_group.setTitle(tr("Фильтр списка"))
         self.update_filter_combo()
-        self.classes_group.setTitle(tr("Классы"))
+        self.classes_group.setTitle(tr("Классы объектов"))
         self.add_group_btn.setText(tr("+ Группа"))
-        self.expand_all_btn.setText(tr("Развернуть всё"))
-        self.collapse_all_btn.setText(tr("Свернуть всё"))
+        self.expand_all_btn.setText(tr("Развернуть"))
+        self.collapse_all_btn.setText(tr("Свернуть"))
+        self.btn_classes.setText(tr("Управление классами..."))
         self.class_tree.setHeaderLabels([tr("Класс / Группа"), tr("Счётчик")])
-        self.info_group.setTitle(tr("Информация"))
+        self.info_group.setTitle(tr("Сводка"))
         self.update_filtered_images()
-        self.list_group.setTitle(tr("Боксы"))
+        self.list_group.setTitle(tr("Аннотации на кадре"))
         self.update_box_list()
         self.status_label.setText(tr("Готов к работе"))
 
@@ -733,21 +907,55 @@ class MainWindow(QMainWindow):
         self.main_radio.blockSignals(False)
         self.auto_radio.blockSignals(False)
 
+    def show_toast(self, text: str, duration_ms: int = 1800):
+        """Отображает стильное плавающее уведомление поверх холста без блокировки интерфейса."""
+        self.statusBar().showMessage(text, duration_ms)
+        if hasattr(self, 'toast_label') and hasattr(self, 'widget'):
+            self.toast_label.setText(text)
+            self.toast_label.adjustSize()
+            w = self.widget.width()
+            tw = self.toast_label.width()
+            self.toast_label.move(max(10, (w - tw) // 2), 65)
+            self.toast_label.show()
+            self.toast_label.raise_()
+            self.toast_timer.start(duration_ms)
+
     def transfer_to_main(self):
-        if self.current_mode != 'auto' or not self.filtered_images: return
+        if self.current_mode != 'auto' or not self.filtered_images:
+            return
+        if self.current_index >= len(self.filtered_images):
+            return
+
         img_name = self.filtered_images[self.current_index]
         auto_boxes = self.project.get_annotations(img_name, 'auto')
         if not auto_boxes:
-            QMessageBox.information(self, tr("Перенос"), tr("Текущее изображение не имеет авто-аннотаций."))
+            self.show_toast(tr("На текущем кадре нет авто-аннотаций"))
             return
+
+        # 1. Утверждаем аннотации текущего кадра
         self.project.approve_auto_annotations(img_name)
         self.project.save()
-        QMessageBox.information(self, tr("Перенос"), tr("Разметка модели успешно утверждена!"))
-        
-        self.current_mode = 'main'
-        self.main_radio.setChecked(True)
-        self.load_current_image()
+
+        # 2. Обновляем список изображений нейросетевого слоя (текущий кадр исключается)
         self.update_filtered_images()
+
+        # 3. Синхронизируем карусель миниатюр
+        self.thumb_bar.clear()
+        for f in self.filtered_images:
+            self.thumb_bar.add_item(f)
+
+        # 4. Если в нейросетевом режиме еще есть кадры — мгновенно показываем следующий
+        if self.filtered_images:
+            if self.current_index >= len(self.filtered_images):
+                self.current_index = max(0, len(self.filtered_images) - 1)
+            self.load_current_image()
+            self.thumb_bar.load_visible_thumbnails()
+            remaining = len(self.filtered_images)
+            self.show_toast(f"✓ {tr('Утверждено')} ({tr('Осталось в авто')}: {remaining})")
+        else:
+            # Все авто-аннотации утверждены -> автоматически переключаем в основной режим
+            self.show_toast(f"✓ {tr('Все авто-аннотации утверждены!')}")
+            self.switch_mode()
 
     def prepare_dataset(self):
         dialog = PrepareDatasetDialog(self, self)
@@ -1049,15 +1257,18 @@ class MainWindow(QMainWindow):
         self.box_list.clear()
         for i, box in enumerate(self.widget.boxes):
             class_name = box.get('class', 'unknown')
-            text = f"{i}: {class_name}"
+            color = self.project.class_colors.get(class_name, "#818cf8")
+            is_poly = "polygon" in box and bool(box["polygon"])
+            text = f"#{i+1} {class_name}"
             item = QListWidgetItem()
             item.setData(Qt.UserRole, i)
-            item.setSizeHint(QSize(100, 28))
+            item.setSizeHint(QSize(100, 30))
             self.box_list.addItem(item)
-            box_widget = BoxItemWidget(text, i)
+            box_widget = BoxItemWidget(text, i, color_hex=color, is_polygon=is_poly)
             box_widget.delete_clicked.connect(self.delete_box_by_index)
             self.box_list.setItemWidget(item, box_widget)
-            if i == self.widget.selected_idx: item.setSelected(True)
+            if i == self.widget.selected_idx:
+                item.setSelected(True)
 
     def delete_box_by_index(self, index):
         if 0 <= index < len(self.widget.boxes):
@@ -1325,11 +1536,13 @@ class MainWindow(QMainWindow):
         if event.modifiers() & Qt.ControlModifier:
             if event.key() == Qt.Key_Z: self.widget.undo(); return
             elif event.key() == Qt.Key_D: self.delete_current_image(); return
+            elif event.key() == Qt.Key_I: self.open_track_interpolation(); return
             elif event.key() == Qt.Key_Q: self.close(); return
         text = event.text().lower()
         if text == 'n': self.force_start_drawing()
         elif text == 'b': self.set_box_mode()
         elif text == 'p': self.set_poly_mode()
+        elif text == 'm': self.set_magic_mode()
         elif text == 's': self.on_boxes_changed()
         elif text == 'e': self.edit_selected()
         elif text == 't': self.next_class()
@@ -1449,17 +1662,149 @@ class MainWindow(QMainWindow):
         self.widget.draw_mode = 'box'
         self.btn_box_mode.setChecked(True)
         self.btn_poly_mode.setChecked(False)
+        self.btn_magic_mode.setChecked(False)
         self.btn_box_mode.style().polish(self.btn_box_mode)
         self.btn_poly_mode.style().polish(self.btn_poly_mode)
+        self.btn_magic_mode.style().polish(self.btn_magic_mode)
         self.status_label.setText(tr("Режим: Прямоугольник"))
 
     def set_poly_mode(self):
         self.widget.draw_mode = 'polygon'
         self.btn_box_mode.setChecked(False)
         self.btn_poly_mode.setChecked(True)
+        self.btn_magic_mode.setChecked(False)
         self.btn_box_mode.style().polish(self.btn_box_mode)
         self.btn_poly_mode.style().polish(self.btn_poly_mode)
+        self.btn_magic_mode.style().polish(self.btn_magic_mode)
         self.status_label.setText(tr("Режим: Полигон"))
+
+    def set_magic_mode(self):
+        self.widget.draw_mode = 'magic'
+        self.btn_box_mode.setChecked(False)
+        self.btn_poly_mode.setChecked(False)
+        self.btn_magic_mode.setChecked(True)
+        self.btn_box_mode.style().polish(self.btn_box_mode)
+        self.btn_poly_mode.style().polish(self.btn_poly_mode)
+        self.btn_magic_mode.style().polish(self.btn_magic_mode)
+        self.status_label.setText(tr("Режим: Магия (1-клик сегментация)"))
+
+    def open_production_export(self):
+        from ui.production_export_dialog import ProductionExportDialog
+        cfg = config.load_config()
+        default_model = getattr(self, 'detector_path', '') or cfg.get("detector_path", "")
+        dlg = ProductionExportDialog(self, default_model_path=default_model)
+        dlg.exec_()
+
+    def open_inference_generator(self):
+        from ui.inference_generator_dialog import InferenceGeneratorDialog
+        cfg = config.load_config()
+        default_model = getattr(self, 'detector_path', '') or cfg.get("detector_path", "")
+        dlg = InferenceGeneratorDialog(self, default_model_path=default_model)
+        dlg.exec_()
+
+    def import_video(self):
+        from ui.video_extractor_dialog import VideoExtractorDialog
+        dlg = VideoExtractorDialog(self, project=self.project)
+        if dlg.exec_() == QDialog.Accepted:
+            if self.project:
+                # Обновляем список картинок в проекте
+                if os.path.exists(self.project.images_dir):
+                    current_files = [f for f in os.listdir(self.project.images_dir)
+                                     if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+                    self.project.images_list = sorted(current_files)
+                    for f in self.project.images_list:
+                        if f not in self.project.images_data:
+                            self.project.images_data[f] = {"main": [], "auto": []}
+                    self.project.save()
+                    self.after_project_load()
+                    QMessageBox.information(
+                        self,
+                        tr("Импорт завершен"),
+                        f"{tr('Всего кадров в проекте')}: {len(self.project.images_list)}"
+                    )
+
+    def open_track_interpolation(self):
+        if not self.project or len(self.project.images_list) < 2:
+            QMessageBox.warning(self, tr("Ошибка"), tr("В проекте должно быть как минимум 2 изображения."))
+            return
+        from ui.track_interpolation_dialog import TrackInterpolationDialog
+        current_img = self.filtered_images[self.current_index] if (self.filtered_images and self.current_index < len(self.filtered_images)) else None
+        dlg = TrackInterpolationDialog(self, project=self.project, current_image=current_img)
+        if dlg.exec_() == QDialog.Accepted:
+            self.load_current_image()
+            self.thumb_bar.clear()
+            for f in self.filtered_images:
+                self.thumb_bar.add_item(f)
+            self.thumb_bar.load_visible_thumbnails()
+            self.update_filter_combo()
+            self.update_box_list()
+
+    def open_augmentation_sandbox(self):
+        if not self.project or not self.project.images_list:
+            QMessageBox.warning(self, tr("Ошибка"), tr("Сначала откройте проект с изображениями."))
+            return
+        from ui.augmentation_sandbox_dialog import AugmentationSandboxDialog
+        current_img = self.filtered_images[self.current_index] if (self.filtered_images and self.current_index < len(self.filtered_images)) else self.project.images_list[0]
+        dlg = AugmentationSandboxDialog(self, project=self.project, current_image_name=current_img)
+        dlg.exec_()
+        self.update_filtered_images()
+        self.thumb_bar.clear()
+        for f in self.filtered_images:
+            self.thumb_bar.add_item(f)
+        self.thumb_bar.load_visible_thumbnails()
+        self.update_filter_combo()
+
+    def open_deduplication_dialog(self):
+        if not self.project or not self.project.images_list:
+            QMessageBox.warning(self, tr("Ошибка"), tr("Сначала откройте проект с изображениями."))
+            return
+        from ui.deduplication_dialog import DeduplicationDialog
+        dlg = DeduplicationDialog(self, project=self.project)
+        dlg.exec_()
+        self.after_project_load()
+
+    def open_embedding_map(self):
+        if not self.project or not self.project.images_list:
+            QMessageBox.warning(self, tr("Ошибка"), tr("Сначала откройте проект с изображениями."))
+            return
+        from ui.embedding_map_dialog import EmbeddingMapDialog
+        dlg = EmbeddingMapDialog(self, project=self.project)
+        res = dlg.exec_()
+        target = getattr(dlg, 'target_jump_image', None)
+        if res == QDialog.Accepted and target:
+            QTimer.singleShot(30, lambda: self.jump_to_image_by_name(target))
+
+    def jump_to_image_by_name(self, filename: str):
+        if not self.project or not self.project.images_list or not filename:
+            return
+
+        # 1. Сбрасываем фильтр списка на "Все"
+        self.filter_type = tr("Все")
+        self.filter_combo.blockSignals(True)
+        self.filter_combo.setCurrentIndex(0)
+        self.filter_combo.blockSignals(False)
+
+        # 2. Обновляем список отфильтрованных изображений
+        self.update_filtered_images()
+
+        # 3. Синхронизируем миниатюры
+        self.thumb_bar.clear()
+        for f in self.filtered_images:
+            self.thumb_bar.add_item(f)
+
+        # 4. Выставляем индекс текущего кадра
+        if filename in self.filtered_images:
+            self.current_index = self.filtered_images.index(filename)
+        elif filename in self.project.images_list:
+            self.current_index = self.project.images_list.index(filename)
+        else:
+            self.current_index = 0
+
+        # 5. Загружаем и перерисовываем
+        self.load_current_image()
+        self.update_progress_bar()
+        self.widget.update()
+        self.thumb_bar.load_visible_thumbnails()
 
     def open_project(self):
         """Вызывает хаб проектов для выбора или создания .vf файла."""

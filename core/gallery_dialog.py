@@ -46,20 +46,16 @@ class GalleryDialog(QDialog):
         filter_bar = QHBoxLayout()
         filter_bar.setSpacing(10)
 
-        search_icon_label = QLabel("🔍")
-        search_icon_label.setStyleSheet("font-size: 14px;")
-        filter_bar.addWidget(search_icon_label)
-
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(tr("Поиск по имени файла..."))
-        self.search_edit.setFixedHeight(32)
+        self.search_edit.setFixedHeight(30)
         self.search_edit.setStyleSheet("""
             QLineEdit {
-                background-color: #3f3f46;
+                background-color: #202026;
                 color: #f4f4f5;
-                border: 1px solid #52525b;
-                border-radius: 8px;
-                padding: 4px 12px;
+                border: 1px solid #383844;
+                border-radius: 6px;
+                padding: 4px 10px;
                 font-size: 12px;
             }
             QLineEdit:focus {

@@ -51,19 +51,20 @@ class ThumbnailBar(QWidget):
 
         # Кнопка «←» для прокрутки назад
         self.scroll_left_btn = QToolButton()
-        self.scroll_left_btn.setText("◀")
-        self.scroll_left_btn.setFixedSize(22, 100)
+        self.scroll_left_btn.setText("<")
+        self.scroll_left_btn.setFixedSize(20, 100)
         self.scroll_left_btn.setAutoRepeat(True)
         self.scroll_left_btn.setAutoRepeatInterval(50)
         self.scroll_left_btn.setStyleSheet("""
             QToolButton {
-                background-color: rgba(39, 39, 42, 200);
-                color: #d4d4d8;
-                border: none;
+                background-color: rgba(32, 32, 38, 220);
+                color: #a1a1aa;
+                border: 1px solid #2e2e38;
                 border-radius: 4px;
-                font-size: 12px;
+                font-size: 13px;
+                font-weight: bold;
             }
-            QToolButton:hover { background-color: #4f46e5; color: white; }
+            QToolButton:hover { background-color: #4f46e5; border-color: #818cf8; color: white; }
         """)
         self.scroll_left_btn.clicked.connect(self._scroll_left)
         self.content_layout.addWidget(self.scroll_left_btn)
@@ -82,7 +83,7 @@ class ThumbnailBar(QWidget):
         self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_widget.setResizeMode(QListWidget.Adjust)
         self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.list_widget.setSpacing(0)  # spacing=0: нет зазоров между ячейками
+        self.list_widget.setSpacing(0)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background: transparent;
@@ -91,7 +92,7 @@ class ThumbnailBar(QWidget):
             }
             QListWidget::item {
                 border: 2px solid transparent;
-                border-radius: 4px;
+                border-radius: 6px;
                 padding: 0px;
                 margin: 1px;
             }
@@ -100,33 +101,32 @@ class ThumbnailBar(QWidget):
                 background-color: rgba(99, 102, 241, 40);
             }
             QListWidget::item:hover:!selected {
-                border: 2px solid #52525b;
+                border: 2px solid #3f3f46;
                 background-color: rgba(63, 63, 70, 80);
             }
         """)
         self.list_widget.setMovement(QListView.Static)
-        # itemClicked срабатывает только на иконке — заменяем на viewport mousePressEvent
         self.list_widget.itemClicked.connect(self.on_item_clicked)
-        self.list_widget.itemActivated.connect(self.on_item_clicked)  # двойной клик / Enter
-        # Перехватываем нажатие на viewport: любой пиксель ячейки — клик
+        self.list_widget.itemActivated.connect(self.on_item_clicked)
         self.list_widget.viewport().installEventFilter(self)
         self.content_layout.addWidget(self.list_widget)
 
         # Кнопка «→» для прокрутки вперёд
         self.scroll_right_btn = QToolButton()
-        self.scroll_right_btn.setText("▶")
-        self.scroll_right_btn.setFixedSize(22, 100)
+        self.scroll_right_btn.setText(">")
+        self.scroll_right_btn.setFixedSize(20, 100)
         self.scroll_right_btn.setAutoRepeat(True)
         self.scroll_right_btn.setAutoRepeatInterval(50)
         self.scroll_right_btn.setStyleSheet("""
             QToolButton {
-                background-color: rgba(39, 39, 42, 200);
-                color: #d4d4d8;
-                border: none;
+                background-color: rgba(32, 32, 38, 220);
+                color: #a1a1aa;
+                border: 1px solid #2e2e38;
                 border-radius: 4px;
-                font-size: 12px;
+                font-size: 13px;
+                font-weight: bold;
             }
-            QToolButton:hover { background-color: #4f46e5; color: white; }
+            QToolButton:hover { background-color: #4f46e5; border-color: #818cf8; color: white; }
         """)
         self.scroll_right_btn.clicked.connect(self._scroll_right)
         self.content_layout.addWidget(self.scroll_right_btn)
@@ -134,21 +134,21 @@ class ThumbnailBar(QWidget):
         self.main_layout.addWidget(self.content_widget)
 
         # Кнопка сворачивания
-        self.collapse_btn = QPushButton("▲")
-        self.collapse_btn.setFixedHeight(14)
+        self.collapse_btn = QPushButton("—")
+        self.collapse_btn.setFixedHeight(12)
         self.collapse_btn.setStyleSheet("""
             QPushButton {
-                background: #27272a;
-                color: #71717a;
+                background: #18181b;
+                color: #52525b;
                 border: none;
-                border-top: 1px solid #3f3f46;
+                border-top: 1px solid #27272a;
                 font-weight: bold;
-                font-size: 9px;
+                font-size: 8px;
                 padding: 0px;
             }
             QPushButton:hover {
-                background: #3f3f46;
-                color: #d4d4d8;
+                background: #27272a;
+                color: #a1a1aa;
             }
         """)
         self.collapse_btn.clicked.connect(self.toggle_collapse)

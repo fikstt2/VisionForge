@@ -477,9 +477,9 @@ class TrainingWidget(QWidget):
         # Предупреждение
         warn_group = QGroupBox(tr("Важное предупреждение"))
         warn_group.setStyleSheet(
-            "QGroupBox { border: 2px solid #e05555; border-radius: 6px; "
-            "margin-top: 6px; padding-top: 4px; color: #e05555; font-weight: bold; }"
-            "QGroupBox::title { subcontrol-origin: margin; left: 8px; color: #e05555; }"
+            "QGroupBox { border: 1px solid #ef4444; border-radius: 6px; "
+            "margin-top: 6px; padding-top: 4px; color: #ef4444; font-weight: bold; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 8px; color: #ef4444; }"
         )
         warn_inner = QVBoxLayout()
         warn_label = QLabel(tr(
@@ -490,21 +490,21 @@ class TrainingWidget(QWidget):
             "Рекомендуется разметить объекты полигонами перед запуском обучения."
         ))
         warn_label.setWordWrap(True)
-        warn_label.setStyleSheet("color: #f0a0a0; font-size: 10pt; padding: 4px;")
+        warn_label.setStyleSheet("color: #f87171; font-size: 11px; padding: 4px;")
         warn_inner.addWidget(warn_label)
         warn_group.setLayout(warn_inner)
         seg_layout.addWidget(warn_group)
 
         hint_label = QLabel(
-            "💡 " + tr("Настройки обработки bbox-аннотаций при сегментации "
-                       "находятся в диалоге Подготовка датасета.")
+            tr("Настройки обработки bbox-аннотаций при сегментации "
+               "находятся в диалоге Подготовка датасета.")
         )
         hint_label.setWordWrap(True)
-        hint_label.setStyleSheet("color: #80a0c0; font-size: 9pt; padding: 4px;")
+        hint_label.setStyleSheet("color: #94a3b8; font-size: 11px; padding: 4px;")
         seg_layout.addWidget(hint_label)
         seg_layout.addStretch()
 
-        self.seg_tab_index = tabs.addTab(self.seg_tab, tr("Сегментация ▶"))
+        self.seg_tab_index = tabs.addTab(self.seg_tab, tr("Сегментация"))
         self.tabs_widget = tabs
 
         # Скрываем вкладку — активна только при выборе «Сегментация»
@@ -514,13 +514,24 @@ class TrainingWidget(QWidget):
         # --- Кнопки управления обучением ---
         btn_layout = QHBoxLayout()
         self.start_btn = QPushButton(tr("Старт"))
+        self.start_btn.setObjectName("primary")
+        self.start_btn.setFixedHeight(30)
+        self.start_btn.setMinimumWidth(80)
         self.start_btn.clicked.connect(self.start_training)
+
         self.pause_btn = QPushButton(tr("Пауза"))
+        self.pause_btn.setFixedHeight(30)
+        self.pause_btn.setMinimumWidth(80)
         self.pause_btn.setEnabled(False)
         self.pause_btn.clicked.connect(self.toggle_pause)
+
         self.stop_btn = QPushButton(tr("Стоп"))
+        self.stop_btn.setObjectName("danger")
+        self.stop_btn.setFixedHeight(30)
+        self.stop_btn.setMinimumWidth(80)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_training)
+
         btn_layout.addWidget(self.start_btn)
         btn_layout.addWidget(self.pause_btn)
         btn_layout.addWidget(self.stop_btn)
@@ -561,11 +572,12 @@ class TrainingWidget(QWidget):
         self.log_text.setFont(QFont("Courier New", 10))
         self.log_text.setStyleSheet("""
             QTextEdit {
-                background-color: #1e1e1e;
-                color: #00ff00;
+                background-color: #151518;
+                color: #22c55e;
                 font-family: 'Courier New', monospace;
                 font-size: 10pt;
-                border: 1px solid #3c3c3c;
+                border: 1px solid #2e2e38;
+                border-radius: 6px;
             }
         """)
         log_layout.addWidget(self.log_text)
@@ -653,23 +665,23 @@ class TrainingWidget(QWidget):
             available = self.get_available_memory()
             if available is not None:
                 if vram_needed > available * 0.9:
-                    color = "red"
-                    msg = (f"⚠️ {tr('Оценочное потребление')} {vram_needed:.1f} GB {tr('превышает 90% доступной памяти')} "
+                    color = "#ef4444"
+                    msg = (f"{tr('Оценочное потребление')} {vram_needed:.1f} GB {tr('превышает 90% доступной памяти')} "
                            f"({available:.1f} GB). {tr('Возможен Out of Memory!')}")
                 elif vram_needed > available * 0.7:
-                    color = "orange"
-                    msg = (f"⚠️ {tr('Оценочное потребление')} {vram_needed:.1f} GB {tr('близко к доступной памяти')} "
+                    color = "#f59e0b"
+                    msg = (f"{tr('Оценочное потребление')} {vram_needed:.1f} GB {tr('близко к доступной памяти')} "
                            f"({available:.1f} GB). {tr('Риск нехватки.')}")
                 else:
-                    color = "green"
-                    msg = (f"✅ {tr('Оценочное потребление')} {vram_needed:.1f} GB. {tr('Доступно')} "
+                    color = "#22c55e"
+                    msg = (f"{tr('Оценочное потребление')} {vram_needed:.1f} GB. {tr('Доступно')} "
                            f"{available:.1f} GB. {tr('Должно хватить.')}")
             else:
-                msg = (f"⚠️ {tr('Приблизительное потребление памяти')}: ~{vram_needed} GB. "
+                msg = (f"{tr('Приблизительное потребление памяти')}: ~{vram_needed} GB. "
                        f"{tr('Не удалось определить доступную память.')}")
-                color = "orange"
+                color = "#f59e0b"
 
-            self.vram_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+            self.vram_label.setStyleSheet(f"color: {color}; font-weight: 500; font-size: 11px;")
             self.vram_label.setText(msg)
         except Exception:
             self.vram_label.setText("")
